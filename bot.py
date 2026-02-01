@@ -1,66 +1,318 @@
 import asyncio
 import logging
+from typing import Optional
 
-from aiogram import Bot, Dispatcher, Router
-from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message, PollAnswer
+from aiogram.enums import ChatType, MessageEntityType
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_ID, GROUP_ID, BIRTHDAY_INFO, TRIP_INFO, WISHLIST_URL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-router = Router()
+# Роутеры
+admin_router = Router()
+group_router = Router()
+mention_router = Router()
+
+# Хранение данных опросов: poll_id -> {question, options, votes, allows_multiple}
+polls_storage: dict[str, dict] = {}
+
+# Маппинг: message_id пересланного сообщения -> оригинальное сообщение в группе
+forwarded_messages: dict[int, dict] = {}
 
 
-@router.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer(
-        f"Привет, {message.from_user.first_name}!\n"
-        "Я бот с командами. Используй /help для списка команд."
-    )
+# === Фильтры ===
+
+def is_admin(message: Message) -> bool:
+    return message.from_user.id == ADMIN_ID
 
 
-@router.message(Command("help"))
-async def cmd_help(message: Message):
+def is_group_chat(message: Message) -> bool:
+    return message.chat.id == GROUP_ID
+
+
+def is_private_chat(message: Message) -> bool:
+    return message.chat.type == ChatType.PRIVATE
+
+
+def has_bot_mention(message: Message, bot_username: str) -> bool:
+    if not message.entities:
+        return False
+    for entity in message.entities:
+        if entity.type == MessageEntityType.MENTION:
+            mention_text = message.text[entity.offset:entity.offset + entity.length]
+            if mention_text.lower() == f"@{bot_username.lower()}":
+                return True
+    return False
+
+
+# === Команды для группы ===
+
+@group_router.message(Command("birthday"), F.chat.id == GROUP_ID)
+async def cmd_birthday(message: Message):
+    info = BIRTHDAY_INFO.replace("\\n", "\n")
+    await message.answer(f"🎂 *День рождения*\n\n{info}", parse_mode="Markdown")
+
+
+@group_router.message(Command("trip"), F.chat.id == GROUP_ID)
+async def cmd_trip(message: Message):
+    info = TRIP_INFO.replace("\\n", "\n")
+    await message.answer(f"🚗 *Информация о выезде*\n\n{info}", parse_mode="Markdown")
+
+
+@group_router.message(Command("wishlist"), F.chat.id == GROUP_ID)
+async def cmd_wishlist(message: Message):
+    await message.answer(f"🎁 *Вишлист*\n\n{WISHLIST_URL}", parse_mode="Markdown")
+
+
+@group_router.message(Command("help"), F.chat.id == GROUP_ID)
+async def cmd_help_group(message: Message):
     help_text = """
-Доступные команды:
-/start - Начать работу с ботом
-/help - Показать это сообщение
-/info - Информация о боте
-/echo <текст> - Повторить ваше сообщение
+*Доступные команды:*
+
+/birthday — информация о дне рождения
+/trip — информация о выезде
+/wishlist — ссылка на вишлист
+/help — показать это сообщение
+
+Также можете упомянуть меня (@), чтобы задать вопрос организатору!
 """
-    await message.answer(help_text)
+    await message.answer(help_text, parse_mode="Markdown")
 
 
-@router.message(Command("info"))
-async def cmd_info(message: Message):
+@group_router.message(CommandStart(), F.chat.id == GROUP_ID)
+async def cmd_start_group(message: Message):
     await message.answer(
-        "Это тестовый Telegram бот.\n"
-        "Создан с использованием aiogram 3.x"
+        f"Привет! Я бот для организации дня рождения.\n"
+        f"ID этого чата: `{message.chat.id}`\n\n"
+        f"Используй /help для списка команд.",
+        parse_mode="Markdown"
     )
 
 
-@router.message(Command("echo"))
-async def cmd_echo(message: Message):
-    text = message.text.replace("/echo", "").strip()
-    if text:
-        await message.answer(text)
+# === Команды для админа (личка) ===
+
+@admin_router.message(CommandStart(), F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID)
+async def cmd_start_admin(message: Message):
+    await message.answer(
+        "Привет, админ! Доступные команды:\n\n"
+        "/poll Вопрос | Вариант 1 | Вариант 2 | ... — опрос (один ответ)\n"
+        "/pollm Вопрос | Вариант 1 | Вариант 2 | ... — опрос (несколько ответов)\n"
+        "/poll_results — результаты всех опросов\n"
+        "/broadcast <текст> — отправить сообщение в группу\n\n"
+        "Чтобы ответить на вопрос из группы, просто ответь на пересланное сообщение."
+    )
+
+
+async def create_poll(message: Message, bot: Bot, allows_multiple: bool):
+    """Создание опроса с возможностью выбора одного или нескольких ответов"""
+    command = "/pollm" if allows_multiple else "/poll"
+    text = message.text.replace(command, "").strip()
+
+    if not text or "|" not in text:
+        await message.answer(f"Формат: {command} Вопрос | Вариант 1 | Вариант 2 | ...")
+        return
+
+    parts = [p.strip() for p in text.split("|")]
+    if len(parts) < 3:
+        await message.answer("Нужен вопрос и минимум 2 варианта ответа")
+        return
+
+    question = parts[0]
+    options = parts[1:]
+
+    if len(options) > 10:
+        await message.answer("Максимум 10 вариантов ответа")
+        return
+
+    try:
+        poll_message = await bot.send_poll(
+            chat_id=GROUP_ID,
+            question=question,
+            options=options,
+            is_anonymous=False,
+            allows_multiple_answers=allows_multiple
+        )
+
+        polls_storage[poll_message.poll.id] = {
+            "question": question,
+            "options": options,
+            "votes": {},
+            "allows_multiple": allows_multiple
+        }
+
+        mode = "несколько ответов" if allows_multiple else "один ответ"
+        await message.answer(f"Опрос создан в группе! ({mode})")
+    except Exception as e:
+        await message.answer(f"Ошибка при создании опроса: {e}")
+
+
+@admin_router.message(Command("poll"), F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID)
+async def cmd_poll(message: Message, bot: Bot):
+    await create_poll(message, bot, allows_multiple=False)
+
+
+@admin_router.message(Command("pollm"), F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID)
+async def cmd_poll_multi(message: Message, bot: Bot):
+    await create_poll(message, bot, allows_multiple=True)
+
+
+@admin_router.message(Command("poll_results"), F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID)
+async def cmd_poll_results(message: Message, bot: Bot):
+    if not polls_storage:
+        await message.answer("Нет опросов")
+        return
+
+    results = "📊 *Результаты всех опросов:*\n\n"
+
+    for poll_id, poll_data in polls_storage.items():
+        question = poll_data["question"]
+        options = poll_data["options"]
+        votes = poll_data["votes"]
+        mode = "несколько" if poll_data["allows_multiple"] else "один"
+
+        results += f"❓ *{question}* ({mode})\n"
+
+        vote_counts: dict[int, list[str]] = {}
+        for user, option_ids in votes.items():
+            for opt_id in option_ids:
+                if opt_id not in vote_counts:
+                    vote_counts[opt_id] = []
+                vote_counts[opt_id].append(user)
+
+        for i, option in enumerate(options):
+            users = vote_counts.get(i, [])
+            count = len(users)
+            results += f"  • {option}: {count} голос(ов)\n"
+            for user in users:
+                results += f"      - {user}\n"
+
+        if not votes:
+            results += "  _Пока никто не голосовал_\n"
+
+        results += "\n"
+
+    await message.answer(results, parse_mode="Markdown")
+
+
+@admin_router.message(Command("broadcast"), F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID)
+async def cmd_broadcast(message: Message, bot: Bot):
+    text = message.text.replace("/broadcast", "").strip()
+    if not text:
+        await message.answer("Формат: /broadcast <текст>")
+        return
+
+    try:
+        await bot.send_message(GROUP_ID, f"📢 {text}")
+        await message.answer("Сообщение отправлено в группу!")
+    except Exception as e:
+        await message.answer(f"Ошибка: {e}")
+
+
+# === Обработка ответов админа на пересланные сообщения ===
+
+@admin_router.message(F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID, F.reply_to_message)
+async def handle_admin_reply(message: Message, bot: Bot):
+    reply_to = message.reply_to_message
+
+    if reply_to.message_id not in forwarded_messages:
+        return
+
+    original = forwarded_messages[reply_to.message_id]
+
+    try:
+        await bot.send_message(
+            chat_id=GROUP_ID,
+            text=f"💬 {message.text}",
+            reply_to_message_id=original["message_id"]
+        )
+        await message.answer("Ответ отправлен в группу!")
+    except Exception as e:
+        await message.answer(f"Ошибка при отправке: {e}")
+
+
+# === Обработка упоминаний бота ===
+
+@mention_router.message(F.chat.id == GROUP_ID)
+async def handle_mentions(message: Message, bot: Bot):
+    bot_info = await bot.get_me()
+
+    if not has_bot_mention(message, bot_info.username):
+        return
+
+    user = message.from_user
+    user_display = user.full_name
+    if user.username:
+        user_display += f" (@{user.username})"
+
+    forward_text = (
+        f"📨 *Упоминание в группе*\n\n"
+        f"*От:* {user_display}\n"
+        f"*Сообщение:* {message.text}\n\n"
+        f"_Ответь на это сообщение, чтобы ответить в группу_"
+    )
+
+    try:
+        sent = await bot.send_message(ADMIN_ID, forward_text, parse_mode="Markdown")
+        forwarded_messages[sent.message_id] = {
+            "message_id": message.message_id,
+            "chat_id": message.chat.id,
+            "user_id": user.id,
+            "user_name": user_display
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при пересылке админу: {e}")
+
+
+# === Обработка голосов в опросах ===
+
+@admin_router.poll_answer()
+async def handle_poll_answer(poll_answer: PollAnswer):
+    poll_id = poll_answer.poll_id
+
+    if poll_id not in polls_storage:
+        return
+
+    user = poll_answer.user
+    user_name = user.full_name
+    if user.username:
+        user_name = f"@{user.username}"
+
+    if poll_answer.option_ids:
+        polls_storage[poll_id]["votes"][user_name] = poll_answer.option_ids
     else:
-        await message.answer("Использование: /echo <текст>")
+        # Пользователь отменил голос
+        polls_storage[poll_id]["votes"].pop(user_name, None)
 
 
-@router.message()
-async def handle_message(message: Message):
-    await message.answer("Я не понимаю это сообщение. Используй /help для списка команд.")
+# === Обработка остальных личных сообщений ===
+
+@admin_router.message(F.chat.type == ChatType.PRIVATE)
+async def handle_private_other(message: Message):
+    if message.from_user.id == ADMIN_ID:
+        return
+
+    await message.answer(
+        "Этот бот предназначен для группового чата.\n"
+        "Если вы хотите связаться с организатором, напишите в группу и упомяните бота."
+    )
 
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
-    dp.include_router(router)
+
+    dp.include_router(admin_router)
+    dp.include_router(group_router)
+    dp.include_router(mention_router)
 
     logger.info("Бот запущен")
+    logger.info(f"Admin ID: {ADMIN_ID}")
+    logger.info(f"Group ID: {GROUP_ID}")
+
     await dp.start_polling(bot)
 
 
