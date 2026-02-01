@@ -4,18 +4,24 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, PollAnswer
-from aiogram.enums import ChatType, MessageEntityType
+from aiogram.types import Message, PollAnswer, BotCommand, BotCommandScopeChat
+from aiogram.enums import ChatType
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from config import BOT_TOKEN, ADMIN_ID, GROUP_ID, BIRTHDAY_INFO, TRIP_INFO, WISHLIST_URL
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Состояния
+class AskState(StatesGroup):
+    waiting_for_question = State()
+
+
 # Роутеры
 admin_router = Router()
 group_router = Router()
-mention_router = Router()
 
 # Хранение данных опросов: poll_id -> {question, options, votes, allows_multiple}
 polls_storage: dict[str, dict] = {}
@@ -36,17 +42,6 @@ def is_group_chat(message: Message) -> bool:
 
 def is_private_chat(message: Message) -> bool:
     return message.chat.type == ChatType.PRIVATE
-
-
-def has_bot_mention(message: Message, bot_username: str) -> bool:
-    if not message.entities:
-        return False
-    for entity in message.entities:
-        if entity.type == MessageEntityType.MENTION:
-            mention_text = message.text[entity.offset:entity.offset + entity.length]
-            if mention_text.lower() == f"@{bot_username.lower()}":
-                return True
-    return False
 
 
 # === Команды для группы ===
@@ -76,9 +71,8 @@ async def cmd_help_group(message: Message):
 /birthday — информация о дне рождения
 /trip — информация о выезде
 /wishlist — ссылка на вишлист
+/ask <вопрос> — задать вопрос организатору
 /help — показать это сообщение
-
-Также можете упомянуть меня (@), чтобы задать вопрос организатору!
 """
     await message.answer(help_text, parse_mode="Markdown")
 
@@ -234,13 +228,20 @@ async def handle_admin_reply(message: Message, bot: Bot):
         await message.answer(f"Ошибка при отправке: {e}")
 
 
-# === Обработка упоминаний бота ===
+# === Команда для вопросов организатору ===
 
-@mention_router.message(F.chat.id == GROUP_ID)
-async def handle_mentions(message: Message, bot: Bot):
-    bot_info = await bot.get_me()
+@group_router.message(Command("ask"), F.chat.id == GROUP_ID)
+async def cmd_ask(message: Message, state: FSMContext):
+    await state.set_state(AskState.waiting_for_question)
+    await message.reply("Напишите ваш вопрос:")
 
-    if not has_bot_mention(message, bot_info.username):
+
+@group_router.message(AskState.waiting_for_question, F.chat.id == GROUP_ID)
+async def process_question(message: Message, bot: Bot, state: FSMContext):
+    await state.clear()
+
+    text = message.text
+    if not text:
         return
 
     user = message.from_user
@@ -249,9 +250,9 @@ async def handle_mentions(message: Message, bot: Bot):
         user_display += f" (@{user.username})"
 
     forward_text = (
-        f"📨 *Упоминание в группе*\n\n"
+        f"📨 *Вопрос из группы*\n\n"
         f"*От:* {user_display}\n"
-        f"*Сообщение:* {message.text}\n\n"
+        f"*Вопрос:* {text}\n\n"
         f"_Ответь на это сообщение, чтобы ответить в группу_"
     )
 
@@ -301,13 +302,31 @@ async def handle_private_other(message: Message):
     )
 
 
+async def setup_bot_commands(bot: Bot):
+    """Настройка меню команд для группы"""
+    group_commands = [
+        BotCommand(command="birthday", description="Информация о дне рождения"),
+        BotCommand(command="trip", description="Информация о выезде"),
+        BotCommand(command="wishlist", description="Ссылка на вишлист"),
+        BotCommand(command="ask", description="Задать вопрос организатору"),
+        BotCommand(command="help", description="Список команд"),
+    ]
+
+    await bot.set_my_commands(
+        commands=group_commands,
+        scope=BotCommandScopeChat(chat_id=GROUP_ID)
+    )
+    logger.info("Меню команд установлено для группы")
+
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
     dp.include_router(admin_router)
     dp.include_router(group_router)
-    dp.include_router(mention_router)
+
+    await setup_bot_commands(bot)
 
     logger.info("Бот запущен")
     logger.info(f"Admin ID: {ADMIN_ID}")
