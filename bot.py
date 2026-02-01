@@ -4,7 +4,10 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, PollAnswer, BotCommand, BotCommandScopeChat
+from aiogram.types import (
+    Message, PollAnswer, BotCommand, BotCommandScopeChat,
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+)
 from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,6 +31,23 @@ polls_storage: dict[str, dict] = {}
 
 # Маппинг: message_id пересланного сообщения -> оригинальное сообщение в группе
 forwarded_messages: dict[int, dict] = {}
+
+
+def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+    """Главное меню с inline-кнопками"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎂 День рождения", callback_data="menu:birthday"),
+            InlineKeyboardButton(text="🚗 Выезд", callback_data="menu:trip"),
+        ],
+        [
+            InlineKeyboardButton(text="🎁 Вишлист", callback_data="menu:wishlist"),
+            InlineKeyboardButton(text="❓ Задать вопрос", callback_data="menu:ask"),
+        ],
+        [
+            InlineKeyboardButton(text="📋 Помощь", callback_data="menu:help"),
+        ],
+    ])
 
 
 # === Фильтры ===
@@ -71,19 +91,72 @@ async def cmd_help_group(message: Message):
 /birthday — информация о дне рождения
 /trip — информация о выезде
 /wishlist — ссылка на вишлист
-/ask <вопрос> — задать вопрос организатору
+/ask — задать вопрос организатору
+/help — показать это сообщение
+
+Или используй кнопки в /start
+"""
+    await message.answer(help_text, parse_mode="Markdown", reply_markup=get_main_menu_keyboard())
+
+
+# === Callback-обработчики для inline-кнопок ===
+
+@group_router.callback_query(F.data == "menu:birthday")
+async def callback_birthday(callback: CallbackQuery):
+    info = BIRTHDAY_INFO.replace("\\n", "\n")
+    await callback.message.answer(f"🎂 *День рождения*\n\n{info}", parse_mode="Markdown")
+    await callback.answer()
+
+
+@group_router.callback_query(F.data == "menu:trip")
+async def callback_trip(callback: CallbackQuery):
+    info = TRIP_INFO.replace("\\n", "\n")
+    await callback.message.answer(f"🚗 *Информация о выезде*\n\n{info}", parse_mode="Markdown")
+    await callback.answer()
+
+
+@group_router.callback_query(F.data == "menu:wishlist")
+async def callback_wishlist(callback: CallbackQuery):
+    await callback.message.answer(f"🎁 *Вишлист*\n\n{WISHLIST_URL}", parse_mode="Markdown")
+    await callback.answer()
+
+
+@group_router.callback_query(F.data == "menu:ask")
+async def callback_ask(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AskState.waiting_for_question)
+    await callback.message.answer("✏️ Напишите ваш вопрос:")
+    await callback.answer()
+
+
+@group_router.callback_query(F.data == "menu:help")
+async def callback_help(callback: CallbackQuery):
+    help_text = """
+*Доступные команды:*
+
+/birthday — информация о дне рождения
+/trip — информация о выезде
+/wishlist — ссылка на вишлист
+/ask — задать вопрос организатору
 /help — показать это сообщение
 """
-    await message.answer(help_text, parse_mode="Markdown")
+    await callback.message.answer(help_text, parse_mode="Markdown")
+    await callback.answer()
 
 
 @group_router.message(CommandStart(), F.chat.id == GROUP_ID)
 async def cmd_start_group(message: Message):
     await message.answer(
-        f"Привет! Я бот для организации дня рождения.\n"
-        f"ID этого чата: `{message.chat.id}`\n\n"
-        f"Используй /help для списка команд.",
-        parse_mode="Markdown"
+        "👋 Привет! Я бот для организации дня рождения.\n\n"
+        "Выбери, что тебя интересует:",
+        reply_markup=get_main_menu_keyboard()
+    )
+
+
+@group_router.message(Command("menu"), F.chat.id == GROUP_ID)
+async def cmd_menu(message: Message):
+    await message.answer(
+        "📋 Главное меню:",
+        reply_markup=get_main_menu_keyboard()
     )
 
 
@@ -305,6 +378,7 @@ async def handle_private_other(message: Message):
 async def setup_bot_commands(bot: Bot):
     """Настройка меню команд для группы"""
     group_commands = [
+        BotCommand(command="menu", description="Главное меню с кнопками"),
         BotCommand(command="birthday", description="Информация о дне рождения"),
         BotCommand(command="trip", description="Информация о выезде"),
         BotCommand(command="wishlist", description="Ссылка на вишлист"),
