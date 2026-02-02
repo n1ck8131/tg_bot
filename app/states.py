@@ -32,16 +32,18 @@ class AdminBroadcastState(StatesGroup):
 class AdminPollState(StatesGroup):
     """Состояние создания опроса."""
 
-    waiting_for_poll = State()
-
-
-class AdminBeerpongState(StatesGroup):
-    """Состояние создания команд для бир-понга."""
-
-    waiting_for_participants = State()
+    waiting_for_poll_single = State()
+    waiting_for_poll_multiple = State()
 
 
 class AddTrackState(StatesGroup):
     """Состояние добавления трека в плейлист."""
 
     waiting_for_link = State()
+
+
+class TournamentState(StatesGroup):
+    """Состояние турнирной системы бир-понга."""
+
+    waiting_for_participants = State()
+    selecting_match_winner = State()

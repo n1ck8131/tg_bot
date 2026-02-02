@@ -11,9 +11,10 @@ from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
+from app.constants import YANDEX_MUSIC_URL_PATTERN, MAX_PHOTO_CONTEST_PARTICIPANTS
 from app.messages import Messages, Emojis
 from app.callbacks import UserCallbacks
-from app.keyboards import get_user_reply_keyboard
+from app.keyboards import get_user_reply_keyboard, get_user_menu_keyboard
 from app.states import AddTrackState
 from app.storage import photo_contest_storage, PhotoEntry
 from app.services.yandex_music import yandex_music_service
@@ -37,7 +38,7 @@ async def cmd_start_user(message: Message) -> None:
     await message.answer(
         f"{Emojis.WAVE} {Messages.WELCOME_USER_CONTEST if show_photo else Messages.WELCOME_USER_NO_CONTEST}",
         parse_mode="Markdown",
-        reply_markup=get_user_reply_keyboard(show_photo=show_photo)
+        reply_markup=get_user_menu_keyboard()
     )
 
 
@@ -53,6 +54,8 @@ async def user_reply_send_photo(message: Message) -> None:
         user_id = message.from_user.id
         if photo_contest_storage.has_entry(user_id):
             await message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
+        elif photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
+            await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
         else:
             await message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}")
     else:
@@ -89,19 +92,12 @@ async def user_callback_send_photo(callback: CallbackQuery) -> None:
         user_id = callback.from_user.id
         if photo_contest_storage.has_entry(user_id):
             await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
+        elif photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
+            await callback.message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
         else:
             await callback.message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}")
     else:
-        await callback.message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_INACTIVE}")
-    await callback.answer()
-
-
-@user_router.callback_query(
-    F.data == UserCallbacks.NO_CONTEST,
-    ~(F.from_user.id == ADMIN_ID)
-)
-async def user_callback_no_contest(callback: CallbackQuery) -> None:
-    await callback.message.answer(f"{Emojis.INFO} {Messages.PHOTO_CONTEST_WAIT}")
+        await callback.message.answer(f"{Emojis.INFO} {Messages.PHOTO_CONTEST_WAIT}")
     await callback.answer()
 
 
@@ -167,8 +163,11 @@ async def _add_track_to_playlist(message: Message, track_id: str) -> None:
             "playlist_not_found": Messages.PLAYLIST_ID_NOT_SET,
             "rate_limit": Messages.TRACK_RATE_LIMIT,
             "network_error": Messages.TRACK_NETWORK_ERROR,
+            "unexpected_error": "Произошла ошибка. Попробуйте позже.",
+            "max_retries": "Превышено количество попыток. Попробуйте позже.",
         }
-        error_msg = error_messages.get(error, Messages.TRACK_ERROR.format(error=error))
+        # Используем generic message для неизвестных ошибок
+        error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
         await message.answer(f"{Emojis.ERROR} {error_msg}")
 
 
@@ -176,8 +175,7 @@ async def _add_track_to_playlist(message: Message, track_id: str) -> None:
 
 @user_router.message(
     F.chat.type == ChatType.PRIVATE,
-    F.text.regexp(r'music\.yandex\.(ru|com)/album/\d+/track/\d+'),
-    ~(F.from_user.id == ADMIN_ID)
+    F.text.regexp(YANDEX_MUSIC_URL_PATTERN)
 )
 async def handle_yandex_music_link(message: Message) -> None:
     """Автоматическое добавление трека при отправке ссылки."""
@@ -194,8 +192,7 @@ async def handle_yandex_music_link(message: Message) -> None:
 
 @user_router.message(
     F.chat.type == ChatType.PRIVATE,
-    F.photo,
-    ~(F.from_user.id == ADMIN_ID)
+    F.photo
 )
 async def handle_private_photo(message: Message) -> None:
     if not photo_contest_storage.is_active:
@@ -206,6 +203,10 @@ async def handle_private_photo(message: Message) -> None:
 
     if photo_contest_storage.has_entry(user_id):
         await message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
+        return
+
+    if photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
+        await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
         return
 
     user_name = message.from_user.full_name

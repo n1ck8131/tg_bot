@@ -2,6 +2,7 @@
 Обработчики для админа.
 """
 
+import asyncio
 import logging
 import random
 
@@ -14,12 +15,12 @@ from aiogram.fsm.context import FSMContext
 from app.config import settings
 from app.messages import Messages, Emojis, TEAM_NAMES
 from app.callbacks import AdminCallbacks
-from app.keyboards import get_admin_reply_keyboard
+from app.keyboards import get_admin_reply_keyboard, get_admin_menu_keyboard
 from app.states import (
     GeoState,
     AdminBroadcastState,
     AdminPollState,
-    AdminBeerpongState,
+    AddTrackState,
 )
 from app.storage import (
     polls_storage,
@@ -30,6 +31,8 @@ from app.storage import (
     PhotoEntry,
     LocationData,
 )
+from app.services.yandex_music import yandex_music_service
+from app.constants import YANDEX_MUSIC_URL_PATTERN, MAX_PHOTO_CONTEST_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,9 @@ admin_router = Router()
 
 ADMIN_ID = settings.bot.admin_id
 GROUP_ID = settings.bot.group_id
+
+# Блокировка для предотвращения race condition при работе с photo contest
+photo_contest_lock = asyncio.Lock()
 
 
 # === Фильтры ===
@@ -54,7 +60,7 @@ def is_admin_private():
 async def cmd_start_admin(message: Message) -> None:
     await message.answer(
         f"{Emojis.WAVE} {Messages.WELCOME_ADMIN}",
-        reply_markup=get_admin_reply_keyboard()
+        reply_markup=get_admin_menu_keyboard()
     )
 
 
@@ -144,10 +150,11 @@ async def cmd_setaddress(message: Message) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_reply_photo(message: Message, bot: Bot) -> None:
-    if not photo_contest_storage.is_active:
-        await _start_photo_contest(message, bot)
-    else:
-        await _stop_photo_contest(message, bot)
+    async with photo_contest_lock:
+        if not photo_contest_storage.is_active:
+            await _start_photo_contest(message, bot)
+        else:
+            await _stop_photo_contest(message, bot)
 
 
 @admin_router.callback_query(
@@ -155,12 +162,13 @@ async def admin_reply_photo(message: Message, bot: Bot) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_callback_photo_start(callback: CallbackQuery, bot: Bot) -> None:
-    if photo_contest_storage.is_active:
-        await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_ALREADY_ACTIVE}")
+    async with photo_contest_lock:
+        if photo_contest_storage.is_active:
+            await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_ALREADY_ACTIVE}")
+            await callback.answer()
+            return
+        await _start_photo_contest(callback.message, bot, from_callback=True)
         await callback.answer()
-        return
-    await _start_photo_contest(callback.message, bot, from_callback=True)
-    await callback.answer()
 
 
 @admin_router.callback_query(
@@ -168,12 +176,13 @@ async def admin_callback_photo_start(callback: CallbackQuery, bot: Bot) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_callback_photo_stop(callback: CallbackQuery, bot: Bot) -> None:
-    if not photo_contest_storage.is_active:
-        await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_NOT_ACTIVE}")
+    async with photo_contest_lock:
+        if not photo_contest_storage.is_active:
+            await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_NOT_ACTIVE}")
+            await callback.answer()
+            return
+        await _stop_photo_contest(callback.message, bot)
         await callback.answer()
-        return
-    await _stop_photo_contest(callback.message, bot)
-    await callback.answer()
 
 
 async def _start_photo_contest(message: Message, bot: Bot, from_callback: bool = False) -> None:
@@ -202,77 +211,106 @@ async def _stop_photo_contest(message: Message, bot: Bot) -> None:
     )
 
     entries = photo_contest_storage.get_entries()
-    options = []
 
+    # Отправка всех фото
     for i, (user_id, entry) in enumerate(entries, 1):
         await bot.send_photo(
             GROUP_ID,
             photo=entry.photo_id,
             caption=f"{Emojis.CAMERA} {Messages.PHOTO_CAPTION.format(num=i, user=entry.user_name)}"
         )
-        options.append(Messages.PHOTO_OPTION.format(num=i, user=entry.user_name))
 
-    if len(options) >= 2:
-        await bot.send_poll(
-            chat_id=GROUP_ID,
-            question=f"{Emojis.TROPHY} {Messages.PHOTO_CONTEST_VOTE_QUESTION}",
-            options=options[:10],
-            is_anonymous=False
-        )
+    # Создание опросов (макс. 10 участников в опросе)
+    total_entries = len(entries)
+    poll_count = (total_entries + 9) // 10  # Округление вверх
+
+    for poll_num in range(poll_count):
+        start_idx = poll_num * 10
+        end_idx = min(start_idx + 10, total_entries)
+        poll_entries = entries[start_idx:end_idx]
+
+        options = [
+            Messages.PHOTO_OPTION.format(num=start_idx + i + 1, user=entry.user_name)
+            for i, (_, entry) in enumerate(poll_entries)
+        ]
+
+        if len(options) >= 2:
+            poll_question = f"{Emojis.TROPHY} {Messages.PHOTO_CONTEST_VOTE_QUESTION}"
+            if poll_count > 1:
+                poll_question += f" (Опрос {poll_num + 1} из {poll_count})"
+
+            await bot.send_poll(
+                chat_id=GROUP_ID,
+                question=poll_question,
+                options=options,
+                is_anonymous=False
+            )
 
     await message.answer(
         f"{Emojis.SUCCESS} {Messages.PHOTO_CONTEST_VOTING_CREATED.format(count=photo_contest_storage.entries_count())}"
     )
 
 
-# === Бир-понг ===
 
-@admin_router.message(
-    F.text == f"{Emojis.BEERPONG} Бир-понг",
-    F.chat.type == ChatType.PRIVATE,
-    F.from_user.id == ADMIN_ID
-)
-async def admin_reply_beerpong(message: Message, state: FSMContext) -> None:
-    await state.set_state(AdminBeerpongState.waiting_for_participants)
-    await message.answer(Messages.BEERPONG_PROMPT, parse_mode="Markdown")
 
+# === Добавление трека админом ===
 
 @admin_router.callback_query(
-    F.data == AdminCallbacks.BEERPONG,
+    F.data == AdminCallbacks.ADD_TRACK,
     F.from_user.id == ADMIN_ID
 )
-async def admin_callback_beerpong(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AdminBeerpongState.waiting_for_participants)
-    await callback.message.answer(Messages.BEERPONG_PROMPT, parse_mode="Markdown")
+async def admin_callback_add_track(callback: CallbackQuery, state: FSMContext) -> None:
+    if not yandex_music_service.is_configured:
+        await callback.message.answer(f"{Emojis.ERROR} {Messages.PLAYLIST_NOT_CONFIGURED}")
+        await callback.answer()
+        return
+
+    await state.set_state(AddTrackState.waiting_for_link)
+    await callback.message.answer(
+        f"{Emojis.MUSIC} {Messages.PLAYLIST_INFO_PRIVATE}",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 
 @admin_router.message(
-    AdminBeerpongState.waiting_for_participants,
+    AddTrackState.waiting_for_link,
     F.chat.type == ChatType.PRIVATE,
     F.from_user.id == ADMIN_ID
 )
-async def process_beerpong_participants(message: Message, bot: Bot, state: FSMContext) -> None:
-    await state.clear()
+async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot) -> None:
+    text = message.text or ""
 
-    participants = [p.strip() for p in message.text.split(",") if p.strip()]
-
-    if len(participants) < 2:
-        await message.answer(Messages.BEERPONG_MIN_PARTICIPANTS)
+    track_id = yandex_music_service.extract_track_id(text)
+    if not track_id:
+        await message.answer(f"{Emojis.ERROR} {Messages.TRACK_INVALID_LINK}")
         return
 
-    random.shuffle(participants)
-    mid = len(participants) // 2
-    team1 = participants[:mid]
-    team2 = participants[mid:]
-    team_names = random.choice(TEAM_NAMES)
+    await state.clear()
 
-    await bot.send_message(
-        GROUP_ID,
-        f"{Emojis.BEERPONG} {Messages.BEERPONG_ANNOUNCEMENT.format(team1_name=f'{Emojis.TEAM_RED} {team_names[0]}', team1_members=', '.join(team1), team2_name=f'{Emojis.TEAM_BLUE} {team_names[1]}', team2_members=', '.join(team2))}",
-        parse_mode="Markdown"
-    )
-    await message.answer(f"{Emojis.SUCCESS} {Messages.BEERPONG_TEAMS_CREATED}")
+    # Добавляем трек
+    success, error, track_info = await yandex_music_service.add_track_to_playlist(track_id)
+
+    if success and track_info:
+        user = message.from_user
+        user_name = f"@{user.username}" if user.username else user.full_name
+        track_title = f"{track_info.artists} — {track_info.title}"
+
+        await message.answer(
+            f"{Emojis.SUCCESS} {Messages.TRACK_ADDED.format(title=track_title, user=user_name)}",
+            parse_mode="Markdown"
+        )
+        logger.info(f"Трек {track_id} добавлен админом {user_name}")
+    else:
+        error_messages = {
+            "connection_error": Messages.TRACK_CONNECTION_ERROR,
+            "track_not_found": Messages.TRACK_NOT_FOUND,
+            "playlist_not_found": Messages.PLAYLIST_ID_NOT_SET,
+            "rate_limit": Messages.TRACK_RATE_LIMIT,
+            "network_error": Messages.TRACK_NETWORK_ERROR,
+        }
+        error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
+        await message.answer(f"{Emojis.ERROR} {error_msg}")
 
 
 # === Шпион ===
@@ -313,28 +351,52 @@ async def admin_callback_spy(callback: CallbackQuery, bot: Bot) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_reply_poll(message: Message, state: FSMContext) -> None:
-    await state.set_state(AdminPollState.waiting_for_poll)
-    await message.answer(Messages.POLL_CREATE_PROMPT, parse_mode="Markdown")
+    await state.set_state(AdminPollState.waiting_for_poll_single)
+    await message.answer(Messages.POLL_CREATE_PROMPT_SINGLE, parse_mode="Markdown")
 
 
 @admin_router.callback_query(
-    F.data == AdminCallbacks.POLL,
+    F.data == AdminCallbacks.POLL_SINGLE,
     F.from_user.id == ADMIN_ID
 )
-async def admin_callback_poll(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AdminPollState.waiting_for_poll)
-    await callback.message.answer(Messages.POLL_CREATE_PROMPT, parse_mode="Markdown")
+async def admin_callback_poll_single(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminPollState.waiting_for_poll_single)
+    await callback.message.answer(Messages.POLL_CREATE_PROMPT_SINGLE, parse_mode="Markdown")
+    await callback.answer()
+
+
+@admin_router.callback_query(
+    F.data == AdminCallbacks.POLL_MULTIPLE,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_callback_poll_multiple(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminPollState.waiting_for_poll_multiple)
+    await callback.message.answer(Messages.POLL_CREATE_PROMPT_MULTIPLE, parse_mode="Markdown")
     await callback.answer()
 
 
 @admin_router.message(
-    AdminPollState.waiting_for_poll,
+    AdminPollState.waiting_for_poll_single,
     F.chat.type == ChatType.PRIVATE,
     F.from_user.id == ADMIN_ID
 )
-async def process_poll_creation(message: Message, bot: Bot, state: FSMContext) -> None:
+async def process_poll_creation_single(message: Message, bot: Bot, state: FSMContext) -> None:
     await state.clear()
+    await _create_poll(message, bot, allows_multiple=False)
 
+
+@admin_router.message(
+    AdminPollState.waiting_for_poll_multiple,
+    F.chat.type == ChatType.PRIVATE,
+    F.from_user.id == ADMIN_ID
+)
+async def process_poll_creation_multiple(message: Message, bot: Bot, state: FSMContext) -> None:
+    await state.clear()
+    await _create_poll(message, bot, allows_multiple=True)
+
+
+async def _create_poll(message: Message, bot: Bot, allows_multiple: bool) -> None:
+    """Создаёт опрос в группе."""
     text = message.text.strip()
     if "|" not in text:
         await message.answer(f"{Emojis.ERROR} {Messages.POLL_INVALID_FORMAT}")
@@ -358,15 +420,16 @@ async def process_poll_creation(message: Message, bot: Bot, state: FSMContext) -
             question=question,
             options=options,
             is_anonymous=False,
-            allows_multiple_answers=False
+            allows_multiple_answers=allows_multiple
         )
 
         polls_storage.add(
             poll_message.poll.id,
-            PollData(question=question, options=options)
+            PollData(question=question, options=options, allows_multiple=allows_multiple)
         )
 
-        await message.answer(f"{Emojis.SUCCESS} {Messages.POLL_CREATED}")
+        mode = Messages.POLL_MODE_MULTIPLE if allows_multiple else Messages.POLL_MODE_SINGLE
+        await message.answer(f"{Emojis.SUCCESS} {Messages.POLL_CREATED_MODE.format(mode=mode)}")
     except Exception as e:
         await message.answer(Messages.POLL_ERROR.format(error=str(e)))
 
