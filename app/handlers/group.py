@@ -3,6 +3,7 @@
 """
 
 import logging
+import re
 
 from aiogram import Bot, Router, F
 from aiogram.filters import Command, CommandStart
@@ -21,6 +22,12 @@ from app.storage import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def escape_markdown(text: str) -> str:
+    """Экранирует специальные символы Markdown для безопасной вставки пользовательского текста."""
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
 
 group_router = Router()
 
@@ -111,8 +118,12 @@ async def process_question(message: Message, bot: Bot, state: FSMContext) -> Non
     if user.username:
         user_display += f" (@{user.username})"
 
+    # Экранируем пользовательский текст для безопасной вставки в Markdown
+    safe_user_display = escape_markdown(user_display)
+    safe_text = escape_markdown(text)
+
     forward_text = (
-        f"{Emojis.FORWARD} {Messages.ASK_FORWARD_TEMPLATE.format(user=user_display, text=text)}"
+        f"{Emojis.FORWARD} {Messages.ASK_FORWARD_TEMPLATE.format(user=safe_user_display, text=safe_text)}"
     )
 
     try:
@@ -133,6 +144,9 @@ async def process_question(message: Message, bot: Bot, state: FSMContext) -> Non
         await message.answer(f"{Emojis.SUCCESS} {Messages.ASK_SUCCESS}")
     except Exception as e:
         logger.error(f"Ошибка при пересылке админу: {e}")
+        await message.answer(
+            f"{Emojis.ERROR} Не удалось отправить вопрос. Попробуйте позже."
+        )
 
 
 # === Callback обработчики ===

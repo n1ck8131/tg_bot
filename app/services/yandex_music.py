@@ -12,10 +12,11 @@ from yandex_music import ClientAsync
 from yandex_music.exceptions import NetworkError
 
 from app.config import settings
+from app.constants import YANDEX_MUSIC_URL_PATTERN
 
 logger = logging.getLogger(__name__)
 
-# Паттерн для извлечения track_id из URL
+# Паттерн для извлечения track_id из URL (с группой захвата для последней цифровой группы)
 YANDEX_MUSIC_PATTERN = re.compile(r'music\.yandex\.(?:ru|com)/album/\d+/track/(\d+)')
 
 # Настройки retry
@@ -157,8 +158,8 @@ class YandexMusicService:
                 return False, "network_error", None
 
             except Exception as e:
-                logger.error(f"Ошибка при добавлении трека: {str(e)[:100]}")
-                return False, str(e)[:100], None
+                logger.error(f"Ошибка при добавлении трека: {e}", exc_info=True)
+                return False, "unexpected_error", None
 
         return False, "max_retries", None
 
