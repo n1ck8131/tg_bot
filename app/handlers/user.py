@@ -108,8 +108,8 @@ async def process_track_link(message: Message, state: FSMContext) -> None:
     # Удаляем сообщение об обработке
     try:
         await processing_msg.delete()
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to delete processing message: {e}")
 
 
 async def _add_track_to_playlist(message: Message, track_id: str) -> None:

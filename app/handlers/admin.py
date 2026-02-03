@@ -259,7 +259,7 @@ async def _stop_photo_contest(message: Message, bot: Bot) -> None:
 )
 async def admin_callback_send_photo(callback: CallbackQuery) -> None:
     if not photo_contest_storage.is_active:
-        await callback.answer(f"{Emojis.WARNING} Конкурс фото не запущен! Сначала нажми 'Начать фото-конкурс'", show_alert=True)
+        await callback.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_NOT_STARTED_ADMIN}", show_alert=True)
         return
 
     user_id = callback.from_user.id
@@ -375,8 +375,8 @@ async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot
     # Удаляем сообщение об обработке
     try:
         await processing_msg.delete()
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to delete processing message: {e}")
 
 
 # === Достать ножи (перенаправление на игру) ===

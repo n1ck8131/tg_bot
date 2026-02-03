@@ -66,6 +66,11 @@ class RateLimitMiddleware(BaseMiddleware):
             if current_time - req_time < self.time_window
         ]
 
+        # Удаляем пользователей без активных запросов
+        if not self.user_requests[user_id]:
+            del self.user_requests[user_id]
+            return await handler(event, data)
+
         # Проверяем лимит
         if len(self.user_requests[user_id]) >= self.rate_limit:
             logger.warning(
