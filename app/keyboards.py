@@ -99,6 +99,12 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                text=f"{Emojis.PHOTO} {ButtonLabels.SEND_PHOTO_CONTEST}",
+                callback_data=AdminCallbacks.SEND_PHOTO
+            ),
+        ],
+        [
+            InlineKeyboardButton(
                 text=f"{Emojis.TOURNAMENT} {ButtonLabels.TOURNAMENT}",
                 callback_data=AdminCallbacks.TOURNAMENT
             ),
@@ -168,14 +174,20 @@ def get_user_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(
-                text=f"{Emojis.MUSIC} {ButtonLabels.ADD_TRACK}",
-                callback_data=UserCallbacks.ADD_TRACK
+                text=f"🔪 {ButtonLabels.ASSASSIN_REGISTER}",
+                callback_data=AssassinCallbacks.REGISTER
             )
         ],
         [
             InlineKeyboardButton(
                 text=f"{Emojis.PHOTO} {ButtonLabels.SEND_PHOTO_CONTEST}",
                 callback_data=UserCallbacks.SEND_PHOTO
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{Emojis.MUSIC} {ButtonLabels.ADD_TRACK}",
+                callback_data=UserCallbacks.ADD_TRACK
             )
         ]
     ]
@@ -294,15 +306,35 @@ def get_tournament_control_keyboard(tournament: Tournament) -> InlineKeyboardMar
 # === Assassin Game Keyboards ===
 
 
-def get_assassin_admin_menu() -> InlineKeyboardMarkup:
+def get_assassin_admin_menu(show_register: bool = False, admin_registered: bool = False) -> InlineKeyboardMarkup:
     """Админ-меню для игры Assassin."""
-    return InlineKeyboardMarkup(inline_keyboard=[
+    buttons = [
         [
             InlineKeyboardButton(
                 text=f"✅ {ButtonLabels.ASSASSIN_OPEN_REG}",
                 callback_data=AssassinCallbacks.OPEN_REGISTRATION
             ),
         ],
+    ]
+
+    # Кнопка регистрации для админа (только если регистрация открыта)
+    if show_register and not admin_registered:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"👤 Зарегистрироваться как игрок",
+                callback_data=AssassinCallbacks.REGISTER
+            ),
+        ])
+
+    if admin_registered:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✅ Ты зарегистрирован",
+                callback_data=AssassinCallbacks.SHOW_CONTRACT
+            ),
+        ])
+
+    buttons.extend([
         [
             InlineKeyboardButton(
                 text=f"🗡 {ButtonLabels.ASSASSIN_SET_WEAPONS}",
@@ -339,7 +371,15 @@ def get_assassin_admin_menu() -> InlineKeyboardMarkup:
                 callback_data=AssassinCallbacks.TEST_MODE
             ),
         ],
+        [
+            InlineKeyboardButton(
+                text="🔄 Обновить статус",
+                callback_data=AssassinCallbacks.REFRESH_MENU
+            ),
+        ],
     ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_assassin_registration_keyboard() -> InlineKeyboardMarkup:

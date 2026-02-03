@@ -11,10 +11,10 @@ from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
-from app.constants import YANDEX_MUSIC_URL_PATTERN, MAX_PHOTO_CONTEST_PARTICIPANTS
+from app.constants import MAX_PHOTO_CONTEST_PARTICIPANTS
 from app.messages import Messages, Emojis
 from app.callbacks import UserCallbacks
-from app.keyboards import get_user_reply_keyboard, get_user_menu_keyboard
+from app.keyboards import get_user_menu_keyboard
 from app.states import AddTrackState
 from app.storage import photo_contest_storage, PhotoEntry
 from app.services.yandex_music import yandex_music_service
@@ -34,50 +34,10 @@ ADMIN_ID = settings.bot.admin_id
     ~(F.from_user.id == ADMIN_ID)
 )
 async def cmd_start_user(message: Message) -> None:
-    show_photo = photo_contest_storage.is_active
     await message.answer(
-        f"{Emojis.WAVE} {Messages.WELCOME_USER_CONTEST if show_photo else Messages.WELCOME_USER_NO_CONTEST}",
+        Messages.WELCOME_USER,
         parse_mode="Markdown",
         reply_markup=get_user_menu_keyboard()
-    )
-
-
-# === Reply-кнопка "Отправить фото" ===
-
-@user_router.message(
-    F.text == f"{Emojis.PHOTO} Отправить фото",
-    F.chat.type == ChatType.PRIVATE,
-    ~(F.from_user.id == ADMIN_ID)
-)
-async def user_reply_send_photo(message: Message) -> None:
-    if photo_contest_storage.is_active:
-        user_id = message.from_user.id
-        if photo_contest_storage.has_entry(user_id):
-            await message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
-        elif photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
-            await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
-        else:
-            await message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}")
-    else:
-        await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_INACTIVE}")
-
-
-# === Reply-кнопка "Добавить трек" ===
-
-@user_router.message(
-    F.text == f"{Emojis.MUSIC} Добавить трек",
-    F.chat.type == ChatType.PRIVATE,
-    ~(F.from_user.id == ADMIN_ID)
-)
-async def user_reply_add_track(message: Message, state: FSMContext) -> None:
-    if not yandex_music_service.is_configured:
-        await message.answer(f"{Emojis.ERROR} {Messages.PLAYLIST_NOT_CONFIGURED}")
-        return
-
-    await state.set_state(AddTrackState.waiting_for_link)
-    await message.answer(
-        f"{Emojis.MUSIC} {Messages.PLAYLIST_INFO_PRIVATE}",
-        parse_mode="Markdown"
     )
 
 
@@ -136,8 +96,20 @@ async def process_track_link(message: Message, state: FSMContext) -> None:
         await message.answer(f"{Emojis.ERROR} {Messages.TRACK_INVALID_LINK}")
         return
 
-    await state.clear()
+    # Показываем сообщение об обработке
+    processing_msg = await message.answer(f"{Emojis.INFO} {Messages.TRACK_PROCESSING}")
+
+    # Обрабатываем трек (состояние НЕ очищается, чтобы блокировать другие запросы)
     await _add_track_to_playlist(message, track_id)
+
+    # Очищаем состояние только ПОСЛЕ завершения обработки
+    await state.clear()
+
+    # Удаляем сообщение об обработке
+    try:
+        await processing_msg.delete()
+    except:
+        pass
 
 
 async def _add_track_to_playlist(message: Message, track_id: str) -> None:
@@ -169,23 +141,6 @@ async def _add_track_to_playlist(message: Message, track_id: str) -> None:
         # Используем generic message для неизвестных ошибок
         error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
         await message.answer(f"{Emojis.ERROR} {error_msg}")
-
-
-# === Автоматическое распознавание ссылок на Яндекс Музыку ===
-
-@user_router.message(
-    F.chat.type == ChatType.PRIVATE,
-    F.text.regexp(YANDEX_MUSIC_URL_PATTERN)
-)
-async def handle_yandex_music_link(message: Message) -> None:
-    """Автоматическое добавление трека при отправке ссылки."""
-    if not yandex_music_service.is_configured:
-        await message.answer(f"{Emojis.ERROR} {Messages.PLAYLIST_NOT_CONFIGURED}")
-        return
-
-    track_id = yandex_music_service.extract_track_id(message.text)
-    if track_id:
-        await _add_track_to_playlist(message, track_id)
 
 
 # === Обработка фото для конкурса ===
@@ -231,13 +186,8 @@ async def handle_private_photo(message: Message) -> None:
     ~(F.from_user.id == ADMIN_ID)
 )
 async def handle_private_other(message: Message) -> None:
-    if photo_contest_storage.is_active:
-        await message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_CONTEST_ACTIVE_HINT}")
-        return
-
     # Показываем меню с доступными действиями
-    show_photo = photo_contest_storage.is_active
     await message.answer(
-        f"{Emojis.INFO} Используй кнопки ниже:",
-        reply_markup=get_user_reply_keyboard(show_photo=show_photo)
+        f"{Emojis.INFO} Используй кнопки из меню выше или набери /start",
+        reply_markup=get_user_menu_keyboard()
     )

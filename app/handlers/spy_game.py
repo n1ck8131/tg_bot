@@ -27,7 +27,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Router, F
-from aiogram.filters import CommandStart
+# CommandStart больше не используется - все пользователи используют единое меню
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
@@ -393,10 +393,16 @@ async def send_final_report(bot: Bot, game_id: int, is_test: bool) -> None:
 )
 async def admin_assassin_menu(message: Message) -> None:
     """Показать меню игры."""
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await message.answer(
         Messages.ASSASSIN_MENU_TITLE,
         parse_mode="Markdown",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
 
 
@@ -406,12 +412,38 @@ async def admin_assassin_menu(message: Message) -> None:
 )
 async def admin_assassin_menu_callback(callback: CallbackQuery) -> None:
     """Вернуться в меню игры."""
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await callback.message.edit_text(
         Messages.ASSASSIN_MENU_TITLE,
         parse_mode="Markdown",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
     await callback.answer()
+
+
+@assassin_router.callback_query(
+    F.data == AssassinCallbacks.REFRESH_MENU,
+    F.from_user.id == ADMIN_ID,
+)
+async def admin_assassin_refresh_menu(callback: CallbackQuery) -> None:
+    """Обновить меню игры."""
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
+    await callback.message.edit_text(
+        Messages.ASSASSIN_MENU_TITLE,
+        parse_mode="Markdown",
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
+    )
+    await callback.answer("Статус обновлен!")
 
 
 @assassin_router.callback_query(
@@ -448,8 +480,9 @@ async def admin_open_registration(callback: CallbackQuery, bot: Bot) -> None:
     )
 
     await callback.message.edit_text(
-        f"{Emojis.SUCCESS} {Messages.ASSASSIN_REG_OPENED}",
-        reply_markup=get_assassin_admin_menu(),
+        f"{Emojis.SUCCESS} {Messages.ASSASSIN_REG_OPENED}\n\n💡 *Не забудь зарегистрироваться сам!* Используй кнопку ниже.",
+        parse_mode="Markdown",
+        reply_markup=get_assassin_admin_menu(show_register=True, admin_registered=False),
     )
     await callback.answer()
 
@@ -485,9 +518,15 @@ async def process_weapons_list(message: Message, state: FSMContext) -> None:
         add_weapon(weapon)
         count += 1
 
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await message.answer(
         f"{Emojis.SUCCESS} {Messages.ASSASSIN_WEAPONS_SAVED.format(count=count)}",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
 
 
@@ -533,9 +572,15 @@ async def process_locations_list(message: Message, state: FSMContext) -> None:
         for loc in skipped:
             response += f"\n{Messages.ASSASSIN_LOCATION_SAFE_ZONE_SKIP.format(location=loc)}"
 
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await message.answer(
         response,
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
 
 
@@ -555,10 +600,16 @@ async def admin_show_lists(callback: CallbackQuery) -> None:
     response += Messages.ASSASSIN_WEAPONS_LIST.format(count=len(weapons), list=weapons_text)
     response += Messages.ASSASSIN_LOCATIONS_LIST.format(count=len(locations), list=locations_text)
 
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await callback.message.edit_text(
         response,
         parse_mode="Markdown",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
     await callback.answer()
 
@@ -655,9 +706,11 @@ async def admin_start_game(callback: CallbackQuery, bot: Bot) -> None:
             reply_markup=get_assassin_test_menu(),
         )
     else:
+        # Игра началась, регистрация закрыта
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
         await callback.message.edit_text(
             f"{Emojis.SUCCESS} {Messages.ASSASSIN_STARTED}",
-            reply_markup=get_assassin_admin_menu(),
+            reply_markup=get_assassin_admin_menu(show_register=False, admin_registered=admin_registered),
         )
     await callback.answer()
 
@@ -679,7 +732,7 @@ async def admin_reset_game(callback: CallbackQuery) -> None:
 
     await callback.message.edit_text(
         f"{Emojis.SUCCESS} {Messages.ASSASSIN_RESET_DONE}",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register=False, admin_registered=False),
     )
     await callback.answer()
 
@@ -899,7 +952,7 @@ async def admin_test_confirm_kill(callback: CallbackQuery, bot: Bot) -> None:
     if result["game_finished"]:
         await callback.message.edit_text(
             "🏆 Игра завершена! Финальный отчёт отправлен.",
-            reply_markup=get_assassin_admin_menu(),
+            reply_markup=get_assassin_admin_menu(show_register=False, admin_registered=False),
         )
     else:
         await callback.message.edit_text(
@@ -913,41 +966,7 @@ async def admin_test_confirm_kill(callback: CallbackQuery, bot: Bot) -> None:
 # === Обработчики игроков ===
 
 
-@assassin_router.message(
-    CommandStart(),
-    F.chat.type == ChatType.PRIVATE,
-    ~(F.from_user.id == ADMIN_ID),
-)
-async def cmd_start_player(message: Message) -> None:
-    """Команда /start для игрока."""
-    game = get_active_game()
-
-    if not game:
-        await message.answer(Messages.ASSASSIN_NO_ACTIVE_GAME)
-        return
-
-    if game["status"] == "registration":
-        await message.answer(
-            Messages.ASSASSIN_NO_ACTIVE_GAME + "\n\nИспользуй кнопку для регистрации:",
-            reply_markup=get_assassin_registration_keyboard(),
-        )
-        return
-
-    if game["status"] == "running":
-        player = get_player_by_tg_id(game["id"], message.from_user.id)
-        if not player:
-            await message.answer(Messages.ASSASSIN_NOT_IN_GAME)
-            return
-
-        if not player["is_alive"]:
-            await message.answer(Messages.ASSASSIN_ALREADY_DEAD)
-            return
-
-        await message.answer(
-            "Игра идёт! Используй кнопки:",
-            reply_markup=get_assassin_player_menu(),
-        )
-        return
+# Обработчик /start удален - теперь все пользователи используют единое меню из user.py
 
 
 @assassin_router.callback_query(
@@ -985,10 +1004,19 @@ async def player_register(callback: CallbackQuery) -> None:
         is_virtual=False,
     )
 
-    await callback.message.edit_text(
-        Messages.ASSASSIN_REGISTERED.format(mention=mention_html),
-        parse_mode="HTML",
-    )
+    # Если админ регистрируется, показать админское меню с обновленным статусом
+    if callback.from_user.id == ADMIN_ID:
+        await callback.message.edit_text(
+            f"{Emojis.SUCCESS} {Messages.ASSASSIN_REGISTERED.format(mention=mention_html)}\n\n"
+            "Теперь ты участвуешь в игре как игрок! Когда игра начнется, ты получишь свое задание.",
+            parse_mode="HTML",
+            reply_markup=get_assassin_admin_menu(show_register=True, admin_registered=True),
+        )
+    else:
+        await callback.message.edit_text(
+            Messages.ASSASSIN_REGISTERED.format(mention=mention_html),
+            parse_mode="HTML",
+        )
     await callback.answer()
 
 

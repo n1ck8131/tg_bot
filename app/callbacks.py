@@ -71,6 +71,7 @@ class AssassinCallbacks:
     RESET_GAME = f"{PREFIX}:reset"
     TEST_MODE = f"{PREFIX}:test_mode"
     ADMIN_MENU = f"{PREFIX}:admin_menu"
+    REFRESH_MENU = f"{PREFIX}:refresh"
 
     # Игрок
     REGISTER = f"{PREFIX}:register"

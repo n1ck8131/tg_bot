@@ -251,6 +251,62 @@ async def _stop_photo_contest(message: Message, bot: Bot) -> None:
     )
 
 
+# === Отправка фото на конкурс админом ===
+
+@admin_router.callback_query(
+    F.data == AdminCallbacks.SEND_PHOTO,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_callback_send_photo(callback: CallbackQuery) -> None:
+    if not photo_contest_storage.is_active:
+        await callback.answer(f"{Emojis.WARNING} Конкурс фото не запущен! Сначала нажми 'Начать фото-конкурс'", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    if photo_contest_storage.has_entry(user_id):
+        await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
+    elif photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
+        await callback.message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
+    else:
+        await callback.message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}")
+    await callback.answer()
+
+
+# === Обработка фото от админа ===
+
+@admin_router.message(
+    F.chat.type == ChatType.PRIVATE,
+    F.from_user.id == ADMIN_ID,
+    F.photo
+)
+async def handle_admin_photo(message: Message) -> None:
+    if not photo_contest_storage.is_active:
+        await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_INACTIVE}")
+        return
+
+    user_id = message.from_user.id
+
+    if photo_contest_storage.has_entry(user_id):
+        await message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
+        return
+
+    if photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
+        await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
+        return
+
+    user_name = message.from_user.full_name
+    if message.from_user.username:
+        user_name = f"@{message.from_user.username}"
+
+    photo_id = message.photo[-1].file_id
+
+    photo_contest_storage.add_entry(
+        user_id,
+        PhotoEntry(photo_id=photo_id, user_name=user_name)
+    )
+
+    await message.answer(f"{Emojis.SUCCESS} {Messages.PHOTO_ACCEPTED}")
+    logger.info(f"Фото для конкурса от админа {user_name}")
 
 
 # === Добавление трека админом ===
@@ -286,9 +342,10 @@ async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot
         await message.answer(f"{Emojis.ERROR} {Messages.TRACK_INVALID_LINK}")
         return
 
-    await state.clear()
+    # Показываем сообщение об обработке
+    processing_msg = await message.answer(f"{Emojis.INFO} {Messages.TRACK_PROCESSING}")
 
-    # Добавляем трек
+    # Добавляем трек (состояние НЕ очищается, чтобы блокировать другие запросы)
     success, error, track_info = await yandex_music_service.add_track_to_playlist(track_id)
 
     if success and track_info:
@@ -312,6 +369,15 @@ async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot
         error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
         await message.answer(f"{Emojis.ERROR} {error_msg}")
 
+    # Очищаем состояние только ПОСЛЕ завершения обработки
+    await state.clear()
+
+    # Удаляем сообщение об обработке
+    try:
+        await processing_msg.delete()
+    except:
+        pass
+
 
 # === Достать ножи (перенаправление на игру) ===
 
@@ -322,10 +388,19 @@ async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot
 async def admin_callback_spy_redirect(callback: CallbackQuery) -> None:
     """Перенаправление на меню игры Достать ножи."""
     from app.keyboards import get_assassin_admin_menu
+    from app.database import get_active_game, get_player_by_tg_id
+    from app.messages import Messages
+
+    game = get_active_game()
+    show_register = game and game["status"] == "registration"
+    admin_registered = False
+    if game:
+        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+
     await callback.message.edit_text(
-        "🔪 *Достать ножи*",
+        Messages.ASSASSIN_MENU_TITLE,
         parse_mode="Markdown",
-        reply_markup=get_assassin_admin_menu(),
+        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
     await callback.answer()
 
