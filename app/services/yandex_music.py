@@ -6,13 +6,17 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from yandex_music import ClientAsync
 from yandex_music.exceptions import NetworkError
 
 from app.config import settings
 from app.constants import YANDEX_MUSIC_URL_PATTERN
+
+if TYPE_CHECKING:
+    from aiogram.types import Message
+    from aiogram.fsm.context import FSMContext
 
 logger = logging.getLogger(__name__)
 
@@ -166,3 +170,52 @@ class YandexMusicService:
 
 # Singleton сервиса
 yandex_music_service = YandexMusicService()
+
+
+async def process_track_submission(
+    message: "Message",
+    state: "FSMContext",
+    is_admin: bool = False
+) -> None:
+    """Обрабатывает отправку ссылки на трек."""
+    from app.messages import Messages, Emojis
+
+    text = message.text or ""
+
+    track_id = yandex_music_service.extract_track_id(text)
+    if not track_id:
+        await message.answer(f"{Emojis.ERROR} {Messages.TRACK_INVALID_LINK}")
+        return
+
+    processing_msg = await message.answer(f"{Emojis.INFO} {Messages.TRACK_PROCESSING}")
+
+    success, error, track_info = await yandex_music_service.add_track_to_playlist(track_id)
+
+    if success and track_info:
+        user = message.from_user
+        user_name = f"@{user.username}" if user.username else user.full_name
+        track_title = f"{track_info.artists} — {track_info.title}"
+
+        await message.answer(
+            f"{Emojis.SUCCESS} {Messages.TRACK_ADDED.format(title=track_title, user=user_name)}",
+            parse_mode="Markdown"
+        )
+        role = "админом" if is_admin else "пользователем"
+        logger.info(f"Трек {track_id} добавлен {role} {user_name}")
+    else:
+        error_messages = {
+            "connection_error": Messages.TRACK_CONNECTION_ERROR,
+            "track_not_found": Messages.TRACK_NOT_FOUND,
+            "playlist_not_found": Messages.PLAYLIST_ID_NOT_SET,
+            "rate_limit": Messages.TRACK_RATE_LIMIT,
+            "network_error": Messages.TRACK_NETWORK_ERROR,
+        }
+        error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
+        await message.answer(f"{Emojis.ERROR} {error_msg}")
+
+    await state.clear()
+
+    try:
+        await processing_msg.delete()
+    except Exception as e:
+        logger.debug(f"Failed to delete processing message: {e}")

@@ -30,7 +30,7 @@ from app.storage import (
     PollData,
     LocationData,
 )
-from app.services.yandex_music import yandex_music_service
+from app.services.yandex_music import yandex_music_service, process_track_submission
 from app.services.photo_contest import handle_photo_submission
 from app.constants import YANDEX_MUSIC_URL_PATTERN
 
@@ -309,48 +309,7 @@ async def admin_callback_add_track(callback: CallbackQuery, state: FSMContext) -
     F.from_user.id == ADMIN_ID
 )
 async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot) -> None:
-    text = message.text or ""
-
-    track_id = yandex_music_service.extract_track_id(text)
-    if not track_id:
-        await message.answer(f"{Emojis.ERROR} {Messages.TRACK_INVALID_LINK}")
-        return
-
-    # Показываем сообщение об обработке
-    processing_msg = await message.answer(f"{Emojis.INFO} {Messages.TRACK_PROCESSING}")
-
-    # Добавляем трек (состояние НЕ очищается, чтобы блокировать другие запросы)
-    success, error, track_info = await yandex_music_service.add_track_to_playlist(track_id)
-
-    if success and track_info:
-        user = message.from_user
-        user_name = f"@{user.username}" if user.username else user.full_name
-        track_title = f"{track_info.artists} — {track_info.title}"
-
-        await message.answer(
-            f"{Emojis.SUCCESS} {Messages.TRACK_ADDED.format(title=track_title, user=user_name)}",
-            parse_mode="Markdown"
-        )
-        logger.info(f"Трек {track_id} добавлен админом {user_name}")
-    else:
-        error_messages = {
-            "connection_error": Messages.TRACK_CONNECTION_ERROR,
-            "track_not_found": Messages.TRACK_NOT_FOUND,
-            "playlist_not_found": Messages.PLAYLIST_ID_NOT_SET,
-            "rate_limit": Messages.TRACK_RATE_LIMIT,
-            "network_error": Messages.TRACK_NETWORK_ERROR,
-        }
-        error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
-        await message.answer(f"{Emojis.ERROR} {error_msg}")
-
-    # Очищаем состояние только ПОСЛЕ завершения обработки
-    await state.clear()
-
-    # Удаляем сообщение об обработке
-    try:
-        await processing_msg.delete()
-    except Exception as e:
-        logger.debug(f"Failed to delete processing message: {e}")
+    await process_track_submission(message, state, is_admin=True)
 
 
 # === Достать ножи (перенаправление на игру) ===
