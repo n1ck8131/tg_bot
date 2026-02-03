@@ -45,11 +45,6 @@ GROUP_ID = settings.bot.group_id
 photo_contest_lock = asyncio.Lock()
 
 
-# === Фильтры ===
-def is_admin_private():
-    return F.chat.type == ChatType.PRIVATE, F.from_user.id == ADMIN_ID
-
-
 # === Команда start ===
 
 @admin_router.message(

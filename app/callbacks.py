@@ -58,7 +58,7 @@ class TournamentCallbacks:
 
 
 class AssassinCallbacks:
-    """Callback'и игры Assassin."""
+    """Callback'и игры Assassin (старое название игры 'Достать ножи')."""
 
     PREFIX = "assassin"
 
@@ -86,3 +86,8 @@ class AssassinCallbacks:
     TEST_KILL_PLAYER = f"{PREFIX}:test_kill"  # assassin:test_kill:123
     TEST_CONFIRM_KILL = f"{PREFIX}:test_confirm"  # assassin:test_confirm:123
     TEST_CANCEL = f"{PREFIX}:test_cancel"
+
+
+class KnivesGameCallbacks(AssassinCallbacks):
+    """Callback'и игры 'Достать ножи' (новое название)."""
+    pass
