@@ -47,3 +47,11 @@ class TournamentState(StatesGroup):
 
     waiting_for_participants = State()
     selecting_match_winner = State()
+
+
+class AssassinState(StatesGroup):
+    """Состояние игры Assassin."""
+
+    waiting_for_weapons = State()
+    waiting_for_locations = State()
+    waiting_for_test_count = State()

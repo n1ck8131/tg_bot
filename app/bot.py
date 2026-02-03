@@ -11,6 +11,7 @@ from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeAllPri
 from app.config import settings
 from app.handlers import get_all_routers
 from app.middleware import RateLimitMiddleware
+from app.database import init_database
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,13 +24,7 @@ async def setup_bot_commands(bot: Bot) -> None:
     """Настройка меню команд."""
     # Команды для группы
     group_commands = [
-        BotCommand(command="menu", description="Главное меню с кнопками"),
-        BotCommand(command="birthday", description="Информация о дне рождения"),
-        BotCommand(command="trip", description="Информация о выезде"),
-        BotCommand(command="wishlist", description="Ссылка на вишлист"),
-        BotCommand(command="location", description="Геопозиция места"),
-        BotCommand(command="ask", description="Написать сообщение Севе"),
-        BotCommand(command="help", description="Список команд"),
+        BotCommand(command="start", description="Главное меню"),
     ]
 
     await bot.set_my_commands(
@@ -39,7 +34,7 @@ async def setup_bot_commands(bot: Bot) -> None:
 
     # Команды для личных чатов
     private_commands = [
-        BotCommand(command="start", description="Открыть меню"),
+        BotCommand(command="start", description="Главное меню"),
     ]
 
     await bot.set_my_commands(
@@ -50,11 +45,6 @@ async def setup_bot_commands(bot: Bot) -> None:
     # Команды для админа в личке
     admin_commands = [
         BotCommand(command="start", description="Главное меню"),
-        BotCommand(command="photo_start", description="Начать конкурс фото"),
-        BotCommand(command="photo_stop", description="Завершить конкурс фото"),
-        BotCommand(command="spy", description="Игра в шпиона"),
-        BotCommand(command="setlocation", description="Установить геопозицию"),
-        BotCommand(command="broadcast", description="Сообщение в группу"),
     ]
 
     await bot.set_my_commands(
@@ -75,6 +65,9 @@ async def handle_errors(event: ErrorEvent) -> None:
 
 async def main() -> None:
     """Главная функция запуска бота."""
+    # Инициализируем базу данных
+    init_database()
+
     bot = Bot(token=settings.bot.token)
     dp = Dispatcher()
 

@@ -17,6 +17,7 @@ class BotConfig:
     token: str
     admin_id: int
     group_id: int
+    timezone: str
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ def load_settings() -> Settings:
             token=bot_token,
             admin_id=int(admin_id),
             group_id=int(group_id),
+            timezone=os.getenv("TIMEZONE", "Europe/Vilnius"),
         ),
         content=ContentConfig(
             birthday_info=os.getenv("BIRTHDAY_INFO", "Информация о дне рождения не настроена"),

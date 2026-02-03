@@ -7,7 +7,7 @@ import re
 
 from aiogram import Bot, Router, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
@@ -19,6 +19,12 @@ from app.storage import (
     location_storage,
     forwarded_messages_storage,
     ForwardedMessage,
+)
+from app.constants import (
+    BIRTHDAY_PHOTO_1,
+    BIRTHDAY_PHOTO_2,
+    TRIP_MEETING_POINT_LATITUDE,
+    TRIP_MEETING_POINT_LONGITUDE,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,18 +59,32 @@ async def cmd_menu(message: Message) -> None:
 @group_router.message(Command("birthday"), F.chat.id == settings.bot.group_id)
 async def cmd_birthday(message: Message) -> None:
     info = settings.content.birthday_info.replace("\\n", "\n")
-    await message.answer(
-        f"{Emojis.BIRTHDAY} {Messages.BIRTHDAY_TEMPLATE.format(info=info)}",
-        parse_mode="Markdown"
-    )
+    caption_text = f"{Emojis.BIRTHDAY} {Messages.BIRTHDAY_TEMPLATE.format(info=info)}"
+
+    # Отправляем медиа-группу с фото
+    media_group = [
+        InputMediaPhoto(
+            media=FSInputFile(BIRTHDAY_PHOTO_1),
+            caption=caption_text,
+            parse_mode="Markdown"
+        ),
+        InputMediaPhoto(media=FSInputFile(BIRTHDAY_PHOTO_2))
+    ]
+    await message.answer_media_group(media=media_group)
 
 
 @group_router.message(Command("trip"), F.chat.id == settings.bot.group_id)
 async def cmd_trip(message: Message) -> None:
     info = settings.content.trip_info.replace("\\n", "\n")
+    # Отправляем текст
     await message.answer(
         f"{Emojis.TRIP} {Messages.TRIP_TEMPLATE.format(info=info)}",
         parse_mode="Markdown"
+    )
+    # Отправляем геопозицию места сбора
+    await message.answer_location(
+        latitude=TRIP_MEETING_POINT_LATITUDE,
+        longitude=TRIP_MEETING_POINT_LONGITUDE
     )
 
 
@@ -154,19 +174,33 @@ async def process_question(message: Message, bot: Bot, state: FSMContext) -> Non
 @group_router.callback_query(F.data == MenuCallbacks.BIRTHDAY)
 async def callback_birthday(callback: CallbackQuery) -> None:
     info = settings.content.birthday_info.replace("\\n", "\n")
-    await callback.message.answer(
-        f"{Emojis.BIRTHDAY} {Messages.BIRTHDAY_TEMPLATE.format(info=info)}",
-        parse_mode="Markdown"
-    )
+    caption_text = f"{Emojis.BIRTHDAY} {Messages.BIRTHDAY_TEMPLATE.format(info=info)}"
+
+    # Отправляем медиа-группу с фото
+    media_group = [
+        InputMediaPhoto(
+            media=FSInputFile(BIRTHDAY_PHOTO_1),
+            caption=caption_text,
+            parse_mode="Markdown"
+        ),
+        InputMediaPhoto(media=FSInputFile(BIRTHDAY_PHOTO_2))
+    ]
+    await callback.message.answer_media_group(media=media_group)
     await callback.answer()
 
 
 @group_router.callback_query(F.data == MenuCallbacks.TRIP)
 async def callback_trip(callback: CallbackQuery) -> None:
     info = settings.content.trip_info.replace("\\n", "\n")
+    # Отправляем текст
     await callback.message.answer(
         f"{Emojis.TRIP} {Messages.TRIP_TEMPLATE.format(info=info)}",
         parse_mode="Markdown"
+    )
+    # Отправляем геопозицию места сбора
+    await callback.message.answer_location(
+        latitude=TRIP_MEETING_POINT_LATITUDE,
+        longitude=TRIP_MEETING_POINT_LONGITUDE
     )
     await callback.answer()
 

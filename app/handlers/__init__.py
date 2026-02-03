@@ -8,8 +8,9 @@ from app.handlers.group import group_router
 from app.handlers.admin import admin_router
 from app.handlers.user import user_router
 from app.handlers.tournament import tournament_router
+from app.handlers.spy_game import assassin_router
 
 
 def get_all_routers() -> list[Router]:
     """Возвращает все роутеры в правильном порядке."""
-    return [admin_router, tournament_router, user_router, group_router]
+    return [admin_router, assassin_router, tournament_router, user_router, group_router]

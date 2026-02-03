@@ -9,7 +9,7 @@ from aiogram.types import (
     KeyboardButton,
 )
 
-from app.callbacks import MenuCallbacks, AdminCallbacks, UserCallbacks, TournamentCallbacks
+from app.callbacks import MenuCallbacks, AdminCallbacks, UserCallbacks, TournamentCallbacks, AssassinCallbacks
 from app.messages import ButtonLabels, Emojis
 from app.storage import photo_contest_storage, Match, Tournament
 from app.tournament_utils import get_pending_matches
@@ -66,7 +66,7 @@ def get_admin_reply_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text=f"{Emojis.TOURNAMENT} Турнир"),
             ],
             [
-                KeyboardButton(text=f"{Emojis.SPY} {ButtonLabels.SPY}"),
+                KeyboardButton(text=f"🔪 Достать ножи"),
                 KeyboardButton(text=f"{Emojis.LOCATION} {ButtonLabels.LOCATION}"),
             ],
             [
@@ -111,7 +111,7 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text=f"{Emojis.SPY} {ButtonLabels.SPY}",
+                text="🔪 Достать ножи",
                 callback_data=AdminCallbacks.SPY
             ),
         ],
@@ -289,3 +289,195 @@ def get_tournament_control_keyboard(tournament: Tournament) -> InlineKeyboardMar
     )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+# === Assassin Game Keyboards ===
+
+
+def get_assassin_admin_menu() -> InlineKeyboardMarkup:
+    """Админ-меню для игры Assassin."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"✅ {ButtonLabels.ASSASSIN_OPEN_REG}",
+                callback_data=AssassinCallbacks.OPEN_REGISTRATION
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🗡 {ButtonLabels.ASSASSIN_SET_WEAPONS}",
+                callback_data=AssassinCallbacks.SET_WEAPONS
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"📍 {ButtonLabels.ASSASSIN_SET_LOCATIONS}",
+                callback_data=AssassinCallbacks.SET_LOCATIONS
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"📋 {ButtonLabels.ASSASSIN_SHOW_LISTS}",
+                callback_data=AssassinCallbacks.SHOW_LISTS
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🎮 {ButtonLabels.ASSASSIN_START_GAME}",
+                callback_data=AssassinCallbacks.START_GAME
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🔄 {ButtonLabels.ASSASSIN_RESET}",
+                callback_data=AssassinCallbacks.RESET_GAME
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🧪 {ButtonLabels.ASSASSIN_TEST_MODE}",
+                callback_data=AssassinCallbacks.TEST_MODE
+            ),
+        ],
+    ])
+
+
+def get_assassin_registration_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура регистрации для игрока."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"✅ {ButtonLabels.ASSASSIN_REGISTER}",
+                callback_data=AssassinCallbacks.REGISTER
+            ),
+        ],
+    ])
+
+
+def get_assassin_player_menu() -> InlineKeyboardMarkup:
+    """Меню игрока во время игры."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"🎯 {ButtonLabels.ASSASSIN_SHOW_CONTRACT}",
+                callback_data=AssassinCallbacks.SHOW_CONTRACT
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"☠️ {ButtonLabels.ASSASSIN_I_AM_DEAD}",
+                callback_data=AssassinCallbacks.I_AM_DEAD
+            ),
+        ],
+    ])
+
+
+def get_assassin_death_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения смерти."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=ButtonLabels.ASSASSIN_CONFIRM_DEATH,
+                callback_data=AssassinCallbacks.CONFIRM_DEATH
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=ButtonLabels.ASSASSIN_CANCEL_DEATH,
+                callback_data=AssassinCallbacks.CANCEL_DEATH
+            ),
+        ],
+    ])
+
+
+def get_assassin_test_count_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора количества виртуальных игроков."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=ButtonLabels.ASSASSIN_TEST_DEFAULT,
+                callback_data=f"{AssassinCallbacks.TEST_MODE}:22"
+            ),
+        ],
+    ])
+
+
+def get_assassin_test_menu() -> InlineKeyboardMarkup:
+    """Меню тестового режима."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"👥 {ButtonLabels.ASSASSIN_TEST_PLAYERS_LIST}",
+                callback_data=AssassinCallbacks.TEST_PLAYERS_LIST
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🎮 {ButtonLabels.ASSASSIN_START_GAME}",
+                callback_data=AssassinCallbacks.START_GAME
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"◀️ {ButtonLabels.ASSASSIN_ADMIN_MENU}",
+                callback_data=AssassinCallbacks.ADMIN_MENU
+            ),
+        ],
+    ])
+
+
+def get_assassin_test_player_list_keyboard(players: list) -> InlineKeyboardMarkup:
+    """Клавиатура списка виртуальных игроков."""
+    buttons = []
+    for player in players:
+        status = "✅" if player["is_alive"] else "☠️"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status} {player['display_name']}",
+                callback_data=f"{AssassinCallbacks.TEST_SELECT_PLAYER}:{player['id']}"
+            ),
+        ])
+    buttons.append([
+        InlineKeyboardButton(
+            text="◀️ Назад",
+            callback_data=AssassinCallbacks.ADMIN_MENU
+        ),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_assassin_test_player_actions_keyboard(player_id: int, is_alive: bool) -> InlineKeyboardMarkup:
+    """Клавиатура действий с виртуальным игроком."""
+    buttons = []
+    if is_alive:
+        buttons.append([
+            InlineKeyboardButton(
+                text="☠️ Симулировать 'Я мёртв'",
+                callback_data=f"{AssassinCallbacks.TEST_KILL_PLAYER}:{player_id}"
+            ),
+        ])
+    buttons.append([
+        InlineKeyboardButton(
+            text="◀️ К списку",
+            callback_data=AssassinCallbacks.TEST_PLAYERS_LIST
+        ),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_assassin_test_death_confirm_keyboard(player_id: int) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения смерти виртуального игрока."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=ButtonLabels.ASSASSIN_CONFIRM_DEATH,
+                callback_data=f"{AssassinCallbacks.TEST_CONFIRM_KILL}:{player_id}"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=ButtonLabels.ASSASSIN_CANCEL_DEATH,
+                callback_data=f"{AssassinCallbacks.TEST_SELECT_PLAYER}:{player_id}"
+            ),
+        ],
+    ])

@@ -313,33 +313,20 @@ async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot
         await message.answer(f"{Emojis.ERROR} {error_msg}")
 
 
-# === Шпион ===
-
-@admin_router.message(
-    F.text == f"{Emojis.SPY} Шпион",
-    F.chat.type == ChatType.PRIVATE,
-    F.from_user.id == ADMIN_ID
-)
-async def admin_reply_spy(message: Message, bot: Bot) -> None:
-    await bot.send_message(
-        GROUP_ID,
-        f"{Emojis.SPY} {Messages.SPY_ANNOUNCEMENT}",
-        parse_mode="Markdown"
-    )
-    await message.answer(f"{Emojis.SUCCESS} {Messages.SPY_STARTED}")
-
+# === Достать ножи (перенаправление на игру) ===
 
 @admin_router.callback_query(
     F.data == AdminCallbacks.SPY,
     F.from_user.id == ADMIN_ID
 )
-async def admin_callback_spy(callback: CallbackQuery, bot: Bot) -> None:
-    await bot.send_message(
-        GROUP_ID,
-        f"{Emojis.SPY} {Messages.SPY_ANNOUNCEMENT}",
-        parse_mode="Markdown"
+async def admin_callback_spy_redirect(callback: CallbackQuery) -> None:
+    """Перенаправление на меню игры Достать ножи."""
+    from app.keyboards import get_assassin_admin_menu
+    await callback.message.edit_text(
+        "🔪 *Достать ножи*",
+        parse_mode="Markdown",
+        reply_markup=get_assassin_admin_menu(),
     )
-    await callback.message.answer(f"{Emojis.SUCCESS} {Messages.SPY_STARTED}")
     await callback.answer()
 
 
