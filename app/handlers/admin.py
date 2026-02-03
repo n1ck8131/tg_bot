@@ -31,7 +31,7 @@ from app.storage import (
     LocationData,
 )
 from app.services.yandex_music import yandex_music_service, process_track_submission
-from app.services.photo_contest import handle_photo_submission
+from app.services.photo_contest import handle_photo_submission, stop_photo_contest
 from app.constants import YANDEX_MUSIC_URL_PATTERN
 
 logger = logging.getLogger(__name__)
@@ -197,58 +197,7 @@ async def _start_photo_contest(message: Message, bot: Bot, from_callback: bool =
 
 
 async def _stop_photo_contest(message: Message, bot: Bot) -> None:
-    photo_contest_storage.stop()
-
-    if photo_contest_storage.is_empty():
-        await message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_NO_ENTRIES}")
-        await bot.send_message(GROUP_ID, f"{Emojis.PHOTO} {Messages.PHOTO_CONTEST_ENDED_EMPTY}")
-        return
-
-    await bot.send_message(
-        GROUP_ID,
-        f"{Emojis.PHOTO} {Messages.PHOTO_CONTEST_ENDED}",
-        parse_mode="Markdown"
-    )
-
-    entries = photo_contest_storage.get_entries()
-
-    # Отправка всех фото
-    for i, (user_id, entry) in enumerate(entries, 1):
-        await bot.send_photo(
-            GROUP_ID,
-            photo=entry.photo_id,
-            caption=f"{Emojis.CAMERA} {Messages.PHOTO_CAPTION.format(num=i, user=entry.user_name)}"
-        )
-
-    # Создание опросов (макс. 10 участников в опросе)
-    total_entries = len(entries)
-    poll_count = (total_entries + 9) // 10  # Округление вверх
-
-    for poll_num in range(poll_count):
-        start_idx = poll_num * 10
-        end_idx = min(start_idx + 10, total_entries)
-        poll_entries = entries[start_idx:end_idx]
-
-        options = [
-            Messages.PHOTO_OPTION.format(num=start_idx + i + 1, user=entry.user_name)
-            for i, (_, entry) in enumerate(poll_entries)
-        ]
-
-        if len(options) >= 2:
-            poll_question = f"{Emojis.TROPHY} {Messages.PHOTO_CONTEST_VOTE_QUESTION}"
-            if poll_count > 1:
-                poll_question += f" (Опрос {poll_num + 1} из {poll_count})"
-
-            await bot.send_poll(
-                chat_id=GROUP_ID,
-                question=poll_question,
-                options=options,
-                is_anonymous=False
-            )
-
-    await message.answer(
-        f"{Emojis.SUCCESS} {Messages.PHOTO_CONTEST_VOTING_CREATED.format(count=photo_contest_storage.entries_count())}"
-    )
+    await stop_photo_contest(message, bot, GROUP_ID)
 
 
 # === Отправка фото на конкурс админом ===

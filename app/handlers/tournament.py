@@ -90,7 +90,7 @@ async def process_tournament_participants(
 
     if len(participants) > MAX_TOURNAMENT_PARTICIPANTS:
         await message.answer(
-            f"{Emojis.ERROR} Слишком много участников! Максимум {MAX_TOURNAMENT_PARTICIPANTS}."
+            f"{Emojis.ERROR} {Messages.TOURNAMENT_MAX_PARTICIPANTS.format(max=MAX_TOURNAMENT_PARTICIPANTS)}"
         )
         return
 
@@ -169,11 +169,11 @@ async def select_match_for_result(callback: CallbackQuery) -> None:
     pending_matches = get_pending_matches(tournament)
 
     if not pending_matches:
-        await callback.answer("Все матчи завершены!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_ALL_MATCHES_COMPLETE, show_alert=True)
         return
 
     await callback.message.edit_text(
-        "📝 Выбери матч для ввода результата:",
+        Messages.TOURNAMENT_SELECT_MATCH,
         reply_markup=get_tournament_match_selection_keyboard(tournament),
     )
     await callback.answer()
@@ -188,7 +188,7 @@ async def show_match_winner_selection(callback: CallbackQuery) -> None:
     tournament = tournament_storage.get_current()
 
     if not tournament or match_id not in tournament.matches:
-        await callback.answer("Матч не найден!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_MATCH_NOT_FOUND, show_alert=True)
         return
 
     match = tournament.matches[match_id]
@@ -217,7 +217,7 @@ async def set_match_winner(callback: CallbackQuery, bot: Bot) -> None:
     tournament = tournament_storage.get_current()
 
     if not tournament or match_id not in tournament.matches:
-        await callback.answer("Матч не найден!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_MATCH_NOT_FOUND, show_alert=True)
         return
 
     # Установить победителя
@@ -245,7 +245,7 @@ async def set_match_winner(callback: CallbackQuery, bot: Bot) -> None:
         parse_mode="Markdown",
         reply_markup=get_tournament_control_keyboard(tournament),
     )
-    await callback.answer("✅ Результат записан!")
+    await callback.answer(Messages.TOURNAMENT_RESULT_RECORDED)
 
 
 # === Переход к следующему раунду ===
@@ -259,11 +259,11 @@ async def advance_to_next_round(callback: CallbackQuery, bot: Bot) -> None:
     tournament = tournament_storage.get_current()
 
     if not tournament:
-        await callback.answer("Нет активного турнира!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_NO_ACTIVE_ALERT, show_alert=True)
         return
 
     if not tournament_storage.check_round_complete():
-        await callback.answer("Раунд еще не завершен!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_ROUND_NOT_COMPLETE, show_alert=True)
         return
 
     # Переход к следующему раунду
@@ -291,7 +291,7 @@ async def advance_to_next_round(callback: CallbackQuery, bot: Bot) -> None:
 
     # Обновить админку
     await callback.message.edit_text(
-        f"▶️ Начался раунд {tournament.current_round}!",
+        Messages.TOURNAMENT_ROUND_STARTED.format(round=tournament.current_round),
         reply_markup=get_tournament_control_keyboard(tournament),
     )
     await callback.answer()
@@ -308,7 +308,7 @@ async def finish_tournament(callback: CallbackQuery, bot: Bot) -> None:
     tournament = tournament_storage.get_current()
 
     if not tournament:
-        await callback.answer("Нет активного турнира!", show_alert=True)
+        await callback.answer(Messages.TOURNAMENT_NO_ACTIVE_ALERT, show_alert=True)
         return
 
     # Завершить турнир
@@ -328,7 +328,7 @@ async def finish_tournament(callback: CallbackQuery, bot: Bot) -> None:
     tournament_storage.clear()
 
     await callback.message.edit_text("🏆 Турнир завершен!")
-    await callback.answer("Поздравляем победителей! 🎉")
+    await callback.answer(Messages.TOURNAMENT_WINNER_CONGRATS)
 
 
 # === Отмена ===
@@ -349,6 +349,6 @@ async def cancel_action(callback: CallbackQuery) -> None:
             reply_markup=get_tournament_control_keyboard(tournament),
         )
     else:
-        await callback.message.edit_text("Действие отменено.")
+        await callback.message.edit_text(Messages.TOURNAMENT_ACTION_CANCELLED)
 
     await callback.answer()
