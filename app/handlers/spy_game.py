@@ -43,6 +43,7 @@ from app.constants import (
 )
 from app.messages import Messages, ButtonLabels, Emojis
 from app.callbacks import AssassinCallbacks
+from app.services.knives_game import knives_game_service
 from app.keyboards import (
     get_assassin_admin_menu,
     get_assassin_registration_keyboard,
@@ -287,100 +288,12 @@ async def send_new_contract_to_killer(
 
 async def send_death_announcement(bot: Bot, game_id: int, victim: dict, is_test: bool) -> None:
     """Отправляет анонс смерти."""
-    announcement = Messages.ASSASSIN_DEATH_ANNOUNCEMENT.format(
-        victim=victim["display_name"]
-    )
-
-    if is_test:
-        announcement = Messages.ASSASSIN_TEST_DEATH_ANNOUNCEMENT.format(
-            victim=victim["display_name"]
-        )
-        try:
-            await bot.send_message(ADMIN_ID, announcement, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Не удалось отправить тестовый анонс админу: {e}")
-    else:
-        try:
-            await bot.send_message(GROUP_ID, announcement, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Не удалось отправить анонс в группу: {e}")
+    await knives_game_service.send_death_announcement(bot, game_id, victim, is_test)
 
 
 async def send_final_report(bot: Bot, game_id: int, is_test: bool) -> None:
     """Отправляет финальный отчёт."""
-    game = get_game_by_id(game_id)
-    if not game:
-        return
-
-    winner = get_player_by_id(game["winner_player_id"])
-    if not winner:
-        return
-
-    all_kills = get_all_kills(game_id)
-    winner_kills = get_kills_by_killer(game_id, winner["id"])
-
-    # Хронология
-    chronology_lines = []
-    for kill in all_kills:
-        # kill["killed_at"] уже datetime объект из SQLite
-        killed_time = kill["killed_at"]
-        if isinstance(killed_time, str):
-            killed_time = datetime.fromisoformat(killed_time)
-        killed_time = killed_time.astimezone(TIMEZONE)
-
-        chronology_lines.append(
-            Messages.ASSASSIN_KILL_ENTRY.format(
-                time=killed_time.strftime("%H:%M"),
-                killer=kill["killer_mention"],
-                victim=kill["victim_mention"],
-                location=kill["location_text"],
-                weapon=kill["weapon_text"],
-            )
-        )
-
-    chronology = Messages.ASSASSIN_CHRONOLOGY.format(kills="".join(chronology_lines))
-
-    # Путь победителя
-    winner_path_lines = []
-    for kill in winner_kills:
-        # kill["killed_at"] уже datetime объект из SQLite
-        killed_time = kill["killed_at"]
-        if isinstance(killed_time, str):
-            killed_time = datetime.fromisoformat(killed_time)
-        killed_time = killed_time.astimezone(TIMEZONE)
-
-        winner_path_lines.append(
-            Messages.ASSASSIN_KILL_ENTRY.format(
-                time=killed_time.strftime("%H:%M"),
-                killer=winner["mention_html"],
-                victim=kill["victim_mention"],
-                location=kill["location_text"],
-                weapon=kill["weapon_text"],
-            )
-        )
-
-    winner_path = ""
-    if winner_path_lines:
-        winner_path = Messages.ASSASSIN_WINNER_PATH.format(kills="".join(winner_path_lines))
-
-    report = chronology + winner_path + "🎉 Поздравляем победителя!"
-
-    final_message = Messages.ASSASSIN_GAME_FINISHED.format(
-        winner=winner["mention_html"],
-        report=report,
-    )
-
-    if is_test:
-        final_message = f"🧪 TEST RESULT:\n\n{final_message}"
-        try:
-            await bot.send_message(ADMIN_ID, final_message, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Не удалось отправить финальный отчёт админу: {e}")
-    else:
-        try:
-            await bot.send_message(GROUP_ID, final_message, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Не удалось отправить финальный отчёт в группу: {e}")
+    await knives_game_service.send_final_report(bot, game_id, is_test)
 
 
 # === Обработчики админа ===
@@ -443,7 +356,7 @@ async def admin_assassin_refresh_menu(callback: CallbackQuery) -> None:
         parse_mode="Markdown",
         reply_markup=get_assassin_admin_menu(show_register, admin_registered),
     )
-    await callback.answer("Статус обновлен!")
+    await callback.answer(Messages.SYSTEM_STATUS_UPDATED)
 
 
 @assassin_router.callback_query(
@@ -724,7 +637,7 @@ async def admin_reset_game(callback: CallbackQuery) -> None:
     game = get_active_game()
 
     if not game:
-        await callback.answer("Нет активной игры", show_alert=True)
+        await callback.answer(Messages.SYSTEM_NO_ACTIVE_GAME, show_alert=True)
         return
 
     # Завершить игру
@@ -820,7 +733,7 @@ async def admin_test_players_list(callback: CallbackQuery) -> None:
     """Показать список виртуальных игроков."""
     game = get_active_game()
     if not game:
-        await callback.answer("Нет активной игры", show_alert=True)
+        await callback.answer(Messages.SYSTEM_NO_ACTIVE_GAME, show_alert=True)
         return
 
     players = get_all_players(game["id"])
@@ -844,12 +757,12 @@ async def admin_test_select_player(callback: CallbackQuery) -> None:
     player = get_player_by_id(player_id)
 
     if not player:
-        await callback.answer("Игрок не найден", show_alert=True)
+        await callback.answer(Messages.SYSTEM_PLAYER_NOT_FOUND, show_alert=True)
         return
 
     game = get_game_by_id(player["game_id"])
     if not game:
-        await callback.answer("Игра не найдена", show_alert=True)
+        await callback.answer(Messages.SYSTEM_GAME_NOT_FOUND, show_alert=True)
         return
 
     status = Messages.ASSASSIN_TEST_PLAYER_ALIVE if player["is_alive"] else Messages.ASSASSIN_TEST_PLAYER_DEAD
@@ -890,23 +803,23 @@ async def admin_test_kill_player(callback: CallbackQuery) -> None:
     player = get_player_by_id(player_id)
 
     if not player:
-        await callback.answer("Игрок не найден", show_alert=True)
+        await callback.answer(Messages.SYSTEM_PLAYER_NOT_FOUND, show_alert=True)
         return
 
     game = get_game_by_id(player["game_id"])
     if not game:
-        await callback.answer("Игра не найдена", show_alert=True)
+        await callback.answer(Messages.SYSTEM_GAME_NOT_FOUND, show_alert=True)
         return
 
     # Найти убийцу
     killer_contract = get_active_contract_for_target(game["id"], player["id"])
     if not killer_contract:
-        await callback.answer("Не найден контракт на этого игрока", show_alert=True)
+        await callback.answer(Messages.SYSTEM_CONTRACT_NOT_FOUND, show_alert=True)
         return
 
     killer = get_player_by_id(killer_contract["assassin_player_id"])
     if not killer:
-        await callback.answer("Не найден убийца", show_alert=True)
+        await callback.answer(Messages.SYSTEM_KILLER_NOT_FOUND, show_alert=True)
         return
 
     message_text = Messages.ASSASSIN_DEATH_CONFIRM_PROMPT.format(
@@ -931,19 +844,19 @@ async def admin_test_confirm_kill(callback: CallbackQuery, bot: Bot) -> None:
     player = get_player_by_id(player_id)
 
     if not player:
-        await callback.answer("Игрок не найден", show_alert=True)
+        await callback.answer(Messages.SYSTEM_PLAYER_NOT_FOUND, show_alert=True)
         return
 
     game = get_game_by_id(player["game_id"])
     if not game:
-        await callback.answer("Игра не найдена", show_alert=True)
+        await callback.answer(Messages.SYSTEM_GAME_NOT_FOUND, show_alert=True)
         return
 
     # Обработать смерть
     result = await process_death(bot, game["id"], player["id"], is_test=True)
 
     if not result["success"]:
-        await callback.answer(result.get("error", "Ошибка"), show_alert=True)
+        await callback.answer(result.get("error", Messages.SYSTEM_ERROR), show_alert=True)
         return
 
     # Отправить анонс
@@ -1042,12 +955,12 @@ async def player_show_contract(callback: CallbackQuery) -> None:
 
     contract = get_active_contract_for_assassin(game["id"], player["id"])
     if not contract:
-        await callback.answer("Нет активного контракта", show_alert=True)
+        await callback.answer(Messages.SYSTEM_NO_ACTIVE_CONTRACT, show_alert=True)
         return
 
     target = get_player_by_id(contract["target_player_id"])
     if not target:
-        await callback.answer("Цель не найдена", show_alert=True)
+        await callback.answer(Messages.SYSTEM_TARGET_NOT_FOUND, show_alert=True)
         return
 
     message_text = Messages.ASSASSIN_YOUR_CONTRACT.format(
@@ -1087,12 +1000,12 @@ async def player_i_am_dead(callback: CallbackQuery) -> None:
     # Найти убийцу
     killer_contract = get_active_contract_for_target(game["id"], player["id"])
     if not killer_contract:
-        await callback.answer("Не найден контракт на тебя", show_alert=True)
+        await callback.answer(Messages.SYSTEM_MY_CONTRACT_NOT_FOUND, show_alert=True)
         return
 
     killer = get_player_by_id(killer_contract["assassin_player_id"])
     if not killer:
-        await callback.answer("Не найден убийца", show_alert=True)
+        await callback.answer(Messages.SYSTEM_KILLER_NOT_FOUND, show_alert=True)
         return
 
     # Показать подтверждение
@@ -1128,7 +1041,7 @@ async def player_confirm_death(callback: CallbackQuery, bot: Bot) -> None:
     result = await process_death(bot, game["id"], player["id"], is_test=False)
 
     if not result["success"]:
-        await callback.answer(result.get("error", "Ошибка"), show_alert=True)
+        await callback.answer(result.get("error", Messages.SYSTEM_ERROR), show_alert=True)
         return
 
     # Отправить анонс
