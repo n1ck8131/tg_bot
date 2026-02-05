@@ -27,7 +27,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Router, F
-# CommandStart больше не используется - все пользователи используют единое меню
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
@@ -224,8 +223,8 @@ async def process_death(
             winner_player_id=winner["id"],
         )
 
-        # Отправить финальный отчёт
-        await send_final_report(bot, game_id, is_test)
+        # НЕ отправляем финальный отчёт здесь - это будет сделано в обработчике
+        # ПОСЛЕ анонса смерти, чтобы соблюсти правильный порядок
 
         return {
             "success": True,
@@ -340,26 +339,6 @@ async def admin_assassin_menu_callback(callback: CallbackQuery) -> None:
 
 
 @assassin_router.callback_query(
-    F.data == AssassinCallbacks.REFRESH_MENU,
-    F.from_user.id == ADMIN_ID,
-)
-async def admin_assassin_refresh_menu(callback: CallbackQuery) -> None:
-    """Обновить меню игры."""
-    game = get_active_game()
-    show_register = game and game["status"] == "registration"
-    admin_registered = False
-    if game:
-        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
-
-    await callback.message.edit_text(
-        Messages.ASSASSIN_MENU_TITLE,
-        parse_mode="Markdown",
-        reply_markup=get_assassin_admin_menu(show_register, admin_registered),
-    )
-    await callback.answer(Messages.SYSTEM_STATUS_UPDATED)
-
-
-@assassin_router.callback_query(
     F.data == AssassinCallbacks.OPEN_REGISTRATION,
     F.from_user.id == ADMIN_ID,
 )
@@ -378,22 +357,16 @@ async def admin_open_registration(callback: CallbackQuery, bot: Bot) -> None:
     # Создать новую игру
     game_id = create_game(is_test_mode=False, group_chat_id=GROUP_ID)
 
-    # Объявить в группу - сначала регистрация
+    # Объявить в группу с кнопкой регистрации
     await bot.send_message(
         GROUP_ID,
         Messages.ASSASSIN_REGISTRATION_OPEN,
         parse_mode="Markdown",
-    )
-
-    # Затем устрашающее сообщение
-    await bot.send_message(
-        GROUP_ID,
-        Messages.ASSASSIN_GAME_STARTING,
-        parse_mode="Markdown",
+        reply_markup=get_assassin_registration_keyboard(),
     )
 
     await callback.message.edit_text(
-        f"{Emojis.SUCCESS} {Messages.ASSASSIN_REG_OPENED}\n\n💡 *Не забудь зарегистрироваться сам!* Используй кнопку ниже.",
+        f"{Emojis.SUCCESS} {Messages.ASSASSIN_REG_OPENED}\n\n💡 *Не забудь зарегистрироваться сам!* Используй кнопку в группе или ниже.",
         parse_mode="Markdown",
         reply_markup=get_assassin_admin_menu(show_register=True, admin_registered=False),
     )
@@ -549,6 +522,10 @@ async def admin_start_game(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer(Messages.ASSASSIN_MIN_PLAYERS, show_alert=True)
         return
 
+    if players_count > MAX_ASSASSIN_PARTICIPANTS:
+        await callback.answer(f"❌ Максимум {MAX_ASSASSIN_PARTICIPANTS} игроков!", show_alert=True)
+        return
+
     weapons = get_active_weapons()
     if not weapons:
         weapons = DEFAULT_WEAPONS
@@ -584,26 +561,12 @@ async def admin_start_game(callback: CallbackQuery, bot: Bot) -> None:
 
     # Объявить в группу или админу (если тест)
     if game["is_test_mode"]:
-        # Сначала устрашающее сообщение
-        await bot.send_message(
-            ADMIN_ID,
-            f"🧪 TEST:\n\n{Messages.ASSASSIN_GAME_STARTING}",
-            parse_mode="Markdown",
-        )
-        # Затем старт
         await bot.send_message(
             ADMIN_ID,
             f"🧪 TEST:\n\n{Messages.ASSASSIN_GAME_STARTED}",
             parse_mode="Markdown",
         )
     else:
-        # Сначала устрашающее сообщение
-        await bot.send_message(
-            GROUP_ID,
-            Messages.ASSASSIN_GAME_STARTING,
-            parse_mode="Markdown",
-        )
-        # Затем старт
         await bot.send_message(
             GROUP_ID,
             Messages.ASSASSIN_GAME_STARTED,
@@ -859,10 +822,13 @@ async def admin_test_confirm_kill(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer(result.get("error", Messages.SYSTEM_ERROR), show_alert=True)
         return
 
-    # Отправить анонс
+    # Отправить анонс смерти
     await send_death_announcement(bot, game["id"], player, is_test=True)
 
     if result["game_finished"]:
+        # Отправить финальный отчёт ПОСЛЕ анонса смерти
+        await send_final_report(bot, game["id"], is_test=True)
+
         await callback.message.edit_text(
             "🏆 Игра завершена! Финальный отчёт отправлен.",
             reply_markup=get_assassin_admin_menu(show_register=False, admin_registered=False),
@@ -877,9 +843,6 @@ async def admin_test_confirm_kill(callback: CallbackQuery, bot: Bot) -> None:
 
 
 # === Обработчики игроков ===
-
-
-# Обработчик /start удален - теперь все пользователи используют единое меню из user.py
 
 
 @assassin_router.callback_query(
@@ -925,12 +888,13 @@ async def player_register(callback: CallbackQuery) -> None:
             parse_mode="HTML",
             reply_markup=get_assassin_admin_menu(show_register=True, admin_registered=True),
         )
+        await callback.answer()
     else:
         await callback.message.edit_text(
             Messages.ASSASSIN_REGISTERED.format(mention=mention_html),
             parse_mode="HTML",
         )
-    await callback.answer()
+        await callback.answer(Messages.ASSASSIN_REGISTERED_ALERT, show_alert=True)
 
 
 @assassin_router.callback_query(
@@ -1044,8 +1008,12 @@ async def player_confirm_death(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer(result.get("error", Messages.SYSTEM_ERROR), show_alert=True)
         return
 
-    # Отправить анонс
+    # Отправить анонс смерти
     await send_death_announcement(bot, game["id"], player, is_test=False)
+
+    # Если игра завершена, отправить финальный отчёт ПОСЛЕ анонса смерти
+    if result["game_finished"]:
+        await send_final_report(bot, game["id"], is_test=False)
 
     await callback.message.edit_text(
         Messages.ASSASSIN_DEATH_CONFIRMED,
