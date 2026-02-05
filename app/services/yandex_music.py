@@ -14,7 +14,12 @@ from yandex_music.exceptions import NetworkError
 from aiogram.exceptions import TelegramAPIError
 
 from app.config import settings
-from app.constants import YANDEX_MUSIC_URL_PATTERN
+from app.constants import (
+    YANDEX_MUSIC_URL_PATTERN,
+    YANDEX_API_RETRY_DELAY,
+    YANDEX_API_YANDEX_API_MAX_RETRIES,
+    YANDEX_API_TIMEOUT,
+)
 
 if TYPE_CHECKING:
     from aiogram.types import Message
@@ -25,11 +30,6 @@ logger = logging.getLogger(__name__)
 # Паттерн для извлечения track_id из URL (с группой захвата для track_id)
 # Поддерживает ссылки с протоколом (https://) и без, а также с параметрами запроса (?utm_source=...)
 YANDEX_MUSIC_PATTERN = re.compile(r'(?:https?://)?music\.yandex\.(?:ru|com)/album/\d+/track/(\d+)')
-
-# Настройки retry
-MAX_RETRIES = 3
-INITIAL_RETRY_DELAY = 5
-REQUEST_TIMEOUT = 30
 
 
 @dataclass
@@ -61,20 +61,20 @@ class YandexMusicService:
             logger.warning("YANDEX_MUSIC_TOKEN не установлен")
             return None
 
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(YANDEX_API_MAX_RETRIES):
             try:
                 client = ClientAsync(settings.yandex_music.token)
-                client.request.set_timeout(REQUEST_TIMEOUT)
+                client.request.set_timeout(YANDEX_API_TIMEOUT)
                 self._client = await client.init()
                 logger.info("Яндекс Музыка клиент инициализирован")
                 return self._client
             except NetworkError as e:
-                logger.warning(f"Network error при инициализации YM (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
-                if attempt < MAX_RETRIES - 1:
+                logger.warning(f"Network error при инициализации YM (попытка {attempt + 1}/{YANDEX_API_MAX_RETRIES}): {e}")
+                if attempt < YANDEX_API_MAX_RETRIES - 1:
                     await asyncio.sleep(2)
             except Exception as e:
-                logger.exception(f"Unexpected error при инициализации YM (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
-                if attempt < MAX_RETRIES - 1:
+                logger.exception(f"Unexpected error при инициализации YM (попытка {attempt + 1}/{YANDEX_API_MAX_RETRIES}): {e}")
+                if attempt < YANDEX_API_MAX_RETRIES - 1:
                     await asyncio.sleep(2)
 
         logger.error("Не удалось инициализировать Яндекс Музыку")
@@ -121,9 +121,9 @@ class YandexMusicService:
         Returns:
             tuple: (success, error_message, track_info)
         """
-        retry_delay = INITIAL_RETRY_DELAY
+        retry_delay = YANDEX_API_RETRY_DELAY
 
-        for attempt in range(MAX_RETRIES):
+        for attempt in range(YANDEX_API_MAX_RETRIES):
             try:
                 client = await self._get_client()
                 if not client:
@@ -159,9 +159,9 @@ class YandexMusicService:
             except NetworkError as e:
                 error_str = str(e)
                 if "429" in error_str:
-                    if attempt < MAX_RETRIES - 1:
+                    if attempt < YANDEX_API_MAX_RETRIES - 1:
                         logger.warning(
-                            f"Rate limit (429), попытка {attempt + 1}/{MAX_RETRIES}, "
+                            f"Rate limit (429), попытка {attempt + 1}/{YANDEX_API_MAX_RETRIES}, "
                             f"ждём {retry_delay} сек..."
                         )
                         await asyncio.sleep(retry_delay)

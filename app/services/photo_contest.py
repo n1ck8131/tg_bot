@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from app.storage import photo_contest_storage, PhotoEntry
 from app.messages import Messages, Emojis
-from app.constants import MAX_PHOTO_CONTEST_PARTICIPANTS
+from app.constants import MAX_PHOTO_CONTEST_PARTICIPANTS, MAX_POLL_OPTIONS
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -56,13 +56,13 @@ async def send_contest_photos(bot: "Bot", group_id: int, entries: list) -> None:
 
 
 async def create_contest_polls(bot: "Bot", group_id: int, entries: list) -> None:
-    """Создаёт опросы для голосования (макс. 10 участников в опросе)."""
+    """Создаёт опросы для голосования (макс. участников в опросе из константы MAX_POLL_OPTIONS)."""
     total_entries = len(entries)
-    poll_count = (total_entries + 9) // 10  # Округление вверх
+    poll_count = (total_entries + MAX_POLL_OPTIONS - 1) // MAX_POLL_OPTIONS  # Округление вверх
 
     for poll_num in range(poll_count):
-        start_idx = poll_num * 10
-        end_idx = min(start_idx + 10, total_entries)
+        start_idx = poll_num * MAX_POLL_OPTIONS
+        end_idx = min(start_idx + MAX_POLL_OPTIONS, total_entries)
         poll_entries = entries[start_idx:end_idx]
 
         options = [

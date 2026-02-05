@@ -24,6 +24,7 @@
 import logging
 import random
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Router, F
@@ -103,7 +104,7 @@ def get_mention_html(user_id: int, username: str | None, display_name: str) -> s
     return f'<a href="tg://user?id={user_id}">{display_name}</a>'
 
 
-def distribute_targets(players: list) -> list[tuple[int, int]]:
+def distribute_targets(players: list[dict]) -> list[tuple[int, int]]:
     """
     Распределяет цели по кольцу.
     Возвращает список пар (убийца_id, жертва_id).
@@ -170,7 +171,7 @@ async def send_contract_to_player(bot: Bot, game_id: int, player_id: int, tg_use
 
 async def process_death(
     bot: Bot, game_id: int, victim_id: int, is_test: bool
-) -> dict:
+) -> dict[str, Any]:
     """
     Обрабатывает смерть игрока.
     Возвращает информацию о результате.

@@ -6,52 +6,101 @@ import math
 import random
 from typing import Optional
 
-from app.constants import TOURNAMENT_TEAM_SIZE_THRESHOLD
 from app.messages import TEAM_NAMES
 from app.storage import Match, Tournament
+from app.constants import MAX_PENDING_MATCHES_DISPLAY
 
 
-def determine_team_size(num_participants: int) -> int:
-    """
-    Определить оптимальный размер команды.
-
-    Логика:
-    - До 11 человек включительно -> команды по 2
-    - 12+ человек -> команды по 3
-    """
-    if num_participants <= TOURNAMENT_TEAM_SIZE_THRESHOLD:
-        return 2
-    else:
-        return 3
-
-
-def create_teams(participants: list[str], team_size: int) -> list[tuple[str, list[str]]]:
+def create_teams(participants: list[str]) -> list[tuple[str, list[str]]]:
     """
     Разбить участников на команды и назначить названия.
 
+    Правила:
+    - Минимум 4 участника для турнира
+    - Количество команд всегда степень двойки (2, 4, 8, 16...)
+    - В команде минимум 2, максимум 4 человека
+    - Оптимальный размер команды: 3 человека
+    - NO BYE матчей - сетка всегда симметричная
+
     Args:
         participants: Список имен участников
-        team_size: Размер команды (2 или 3)
 
     Returns:
         Список кортежей (team_name, [members])
+
+    Raises:
+        ValueError: Если меньше 4 участников
     """
+    num_participants = len(participants)
+
+    if num_participants < 4:
+        raise ValueError("Минимум 4 участника для турнира")
+
+    # Находим оптимальное количество команд (степень двойки)
+    # Пробуем разные степени двойки и выбираем ту, где средний размер команды ближе к 3
+
+    best_num_teams = None
+    best_score = float('inf')
+
+    # Проверяем степени двойки: 2, 4, 8, 16, 32, 64
+    # Максимум 64 команды (для 256 участников при размере команды 4)
+    for power in range(1, 7):
+        num_teams = 2 ** power
+
+        # Минимум участников для этого количества команд (по 2 в каждой)
+        min_participants = num_teams * 2
+        # Максимум участников для этого количества команд (по 4 в каждой)
+        max_participants = num_teams * 4
+
+        # Проверяем, подходит ли это количество команд
+        if min_participants <= num_participants <= max_participants:
+            # Вычисляем средний размер команды
+            avg_team_size = num_participants / num_teams
+            # Оцениваем, насколько далеко от оптимального (3)
+            score = abs(avg_team_size - 3.0)
+
+            # Выбираем наименьшее количество команд с лучшим score
+            # Это предпочитает меньше команд (больше людей в команде) при равном score
+            if score < best_score or (score == best_score and (best_num_teams is None or num_teams < best_num_teams)):
+                best_score = score
+                best_num_teams = num_teams
+
+    if best_num_teams is None:
+        raise ValueError(
+            f"Невозможно создать команды для {num_participants} участников "
+            f"(слишком много участников или невозможно распределить по командам 2-4 человека)"
+        )
+
+    num_teams = best_num_teams
+
+    # Распределяем участников по командам
+    # Стараемся сделать команды максимально равными по размеру
+    base_size = num_participants // num_teams
+    extra = num_participants % num_teams
+
     # Перемешать участников
     shuffled = participants.copy()
     random.shuffle(shuffled)
 
-    # Разбить на команды
+    # Создаем команды
     teams = []
-    for i in range(0, len(shuffled), team_size):
-        team_members = shuffled[i : i + team_size]
-        teams.append(team_members)
+    idx = 0
 
-    # Назначить названия из TEAM_NAMES
-    # Развернуть пары в плоский список
+    for i in range(num_teams):
+        # Первые 'extra' команд получают на одного участника больше
+        size = base_size + (1 if i < extra else 0)
+        teams.append(shuffled[idx:idx + size])
+        idx += size
+
+    # Назначить названия
     all_team_names = [name for pair in TEAM_NAMES for name in pair]
 
-    # Выбрать случайные названия без повторений
-    selected_names = random.sample(all_team_names, k=min(len(teams), len(all_team_names)))
+    # Если названий не хватает, генерируем дополнительные
+    if len(all_team_names) < len(teams):
+        for i in range(len(all_team_names) + 1, len(teams) + 1):
+            all_team_names.append(f"Команда {i}")
+
+    selected_names = random.sample(all_team_names, k=len(teams))
 
     return [(name, members) for name, members in zip(selected_names, teams)]
 
@@ -62,50 +111,43 @@ def generate_single_elimination_bracket(
     """
     Генерирует single elimination сетку.
 
+    Количество команд должно быть степенью двойки (2, 4, 8, 16...).
+    Не создает BYE матчей - сетка полностью симметричная.
+
     Args:
         teams: Список команд [(team_name, [members]), ...]
 
     Returns:
         Словарь {match_id: Match, ...}
+
+    Raises:
+        ValueError: Если количество команд не степень двойки
     """
     num_teams = len(teams)
 
-    # Определить количество раундов (log2 округление вверх)
-    max_rounds = math.ceil(math.log2(num_teams))
+    # Проверяем, что количество команд - степень двойки
+    if num_teams < 2 or (num_teams & (num_teams - 1)) != 0:
+        raise ValueError(f"Количество команд должно быть степенью двойки (2, 4, 8...), получено: {num_teams}")
+
+    # Определить количество раундов (log2)
+    max_rounds = int(math.log2(num_teams))
 
     matches = {}
 
-    # Первый раунд - создать матчи из всех команд
+    # Первый раунд - создать матчи из всех команд (пары)
     round_1_matches = []
     for i in range(0, len(teams), 2):
-        if i + 1 < len(teams):
-            # Обычный матч
-            match_id = f"R1M{i // 2 + 1}"
-            match = Match(
-                match_id=match_id,
-                round_number=1,
-                team1_name=teams[i][0],
-                team2_name=teams[i + 1][0],
-                team1_members=teams[i][1],
-                team2_members=teams[i + 1][1],
-            )
-            matches[match_id] = match
-            round_1_matches.append(match_id)
-        else:
-            # Bye - команда проходит автоматически
-            match_id = f"R1M{i // 2 + 1}"
-            match = Match(
-                match_id=match_id,
-                round_number=1,
-                team1_name=teams[i][0],
-                team2_name="BYE",
-                team1_members=teams[i][1],
-                team2_members=[],
-                winner_team=1,
-                status="finished",
-            )
-            matches[match_id] = match
-            round_1_matches.append(match_id)
+        match_id = f"R1M{i // 2 + 1}"
+        match = Match(
+            match_id=match_id,
+            round_number=1,
+            team1_name=teams[i][0],
+            team2_name=teams[i + 1][0],
+            team1_members=teams[i][1],
+            team2_members=teams[i + 1][1],
+        )
+        matches[match_id] = match
+        round_1_matches.append(match_id)
 
     # Создать остальные раунды (пустые матчи)
     previous_round = round_1_matches
@@ -126,8 +168,7 @@ def generate_single_elimination_bracket(
 
             # Связать предыдущие матчи с этим
             matches[previous_round[i]].next_match_id = match_id
-            if i + 1 < len(previous_round):
-                matches[previous_round[i + 1]].next_match_id = match_id
+            matches[previous_round[i + 1]].next_match_id = match_id
 
         previous_round = current_round
 
@@ -178,14 +219,11 @@ def format_bracket_for_display(tournament: Tournament) -> str:
             winner_indicator_2 = " 🏆" if match.winner_team == 2 else ""
 
             # Форматирование команд
-            team1_members_str = ", ".join(match.team1_members)
-            team1_display = f"{match.team1_name} ({team1_members_str})"
+            team1_members_str = ", ".join(match.team1_members) if match.team1_members else ""
+            team1_display = f"{match.team1_name} ({team1_members_str})" if team1_members_str else match.team1_name
 
-            if match.team2_name != "BYE":
-                team2_members_str = ", ".join(match.team2_members)
-                team2_display = f"{match.team2_name} ({team2_members_str})"
-            else:
-                team2_display = "BYE"
+            team2_members_str = ", ".join(match.team2_members) if match.team2_members else ""
+            team2_display = f"{match.team2_name} ({team2_members_str})" if team2_members_str else match.team2_name
 
             lines.append(
                 f"{status_emoji} `{match.match_id}`: "
@@ -202,7 +240,7 @@ def format_bracket_for_display(tournament: Tournament) -> str:
     else:
         pending_matches = [m for m in tournament.matches.values() if m.status == "pending"]
         if pending_matches:
-            pending_ids = [m.match_id for m in pending_matches[:3]]
+            pending_ids = [m.match_id for m in pending_matches[:MAX_PENDING_MATCHES_DISPLAY]]
             lines.append(f"\n\n⏳ Ожидание результатов: {', '.join(pending_ids)}")
 
     return "\n".join(lines)
