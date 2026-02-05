@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 from aiogram import Bot, Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
@@ -43,6 +44,7 @@ from app.constants import (
 from app.messages import Messages, ButtonLabels, Emojis
 from app.callbacks import AssassinCallbacks
 from app.services.knives_game import knives_game_service
+from app.utils.game_helpers import get_game_state, check_active_game, get_player_with_validation
 from app.keyboards import (
     get_assassin_admin_menu,
     get_assassin_registration_keyboard,
@@ -160,8 +162,10 @@ async def send_contract_to_player(bot: Bot, game_id: int, player_id: int, tg_use
             parse_mode="HTML",
             reply_markup=get_assassin_player_menu(),
         )
+    except TelegramAPIError as e:
+        logger.error(f"Telegram API error при отправке контракта игроку {tg_user_id}: {e}")
     except Exception as e:
-        logger.error(f"Не удалось отправить контракт игроку {tg_user_id}: {e}")
+        logger.exception(f"Unexpected error при отправке контракта игроку {tg_user_id}: {e}")
 
 
 async def process_death(
@@ -281,8 +285,10 @@ async def send_new_contract_to_killer(
             parse_mode="HTML",
             reply_markup=get_assassin_player_menu(),
         )
+    except TelegramAPIError as e:
+        logger.error(f"Telegram API error при отправке нового контракта игроку {killer['tg_user_id']}: {e}")
     except Exception as e:
-        logger.error(f"Не удалось отправить новый контракт игроку {killer['tg_user_id']}: {e}")
+        logger.exception(f"Unexpected error при отправке нового контракта игроку {killer['tg_user_id']}: {e}")
 
 
 async def send_death_announcement(bot: Bot, game_id: int, victim: dict, is_test: bool) -> None:
@@ -305,11 +311,7 @@ async def send_final_report(bot: Bot, game_id: int, is_test: bool) -> None:
 )
 async def admin_assassin_menu(message: Message) -> None:
     """Показать меню игры."""
-    game = get_active_game()
-    show_register = game and game["status"] == "registration"
-    admin_registered = False
-    if game:
-        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+    game, show_register, admin_registered = get_game_state()
 
     await message.answer(
         Messages.ASSASSIN_MENU_TITLE,
@@ -324,11 +326,7 @@ async def admin_assassin_menu(message: Message) -> None:
 )
 async def admin_assassin_menu_callback(callback: CallbackQuery) -> None:
     """Вернуться в меню игры."""
-    game = get_active_game()
-    show_register = game and game["status"] == "registration"
-    admin_registered = False
-    if game:
-        admin_registered = get_player_by_tg_id(game["id"], ADMIN_ID) is not None
+    game, show_register, admin_registered = get_game_state()
 
     await callback.message.edit_text(
         Messages.ASSASSIN_MENU_TITLE,
@@ -904,17 +902,14 @@ async def player_show_contract(callback: CallbackQuery) -> None:
     """Показать контракт игроку."""
     game = get_active_game()
 
-    if not game or game["status"] != "running":
-        await callback.answer(Messages.ASSASSIN_NO_ACTIVE_GAME, show_alert=True)
+    is_valid, game, error_msg = check_active_game()
+    if not is_valid:
+        await callback.answer(error_msg, show_alert=True)
         return
 
-    player = get_player_by_tg_id(game["id"], callback.from_user.id)
-    if not player:
-        await callback.answer(Messages.ASSASSIN_NOT_IN_GAME, show_alert=True)
-        return
-
-    if not player["is_alive"]:
-        await callback.answer(Messages.ASSASSIN_ALREADY_DEAD, show_alert=True)
+    is_valid, player, error_msg = get_player_with_validation(game["id"], callback.from_user.id)
+    if not is_valid:
+        await callback.answer(error_msg, show_alert=True)
         return
 
     contract = get_active_contract_for_assassin(game["id"], player["id"])
@@ -948,17 +943,14 @@ async def player_i_am_dead(callback: CallbackQuery) -> None:
     """Игрок нажал 'Я мёртв'."""
     game = get_active_game()
 
-    if not game or game["status"] != "running":
-        await callback.answer(Messages.ASSASSIN_NO_ACTIVE_GAME, show_alert=True)
+    is_valid, game, error_msg = check_active_game()
+    if not is_valid:
+        await callback.answer(error_msg, show_alert=True)
         return
 
-    player = get_player_by_tg_id(game["id"], callback.from_user.id)
-    if not player:
-        await callback.answer(Messages.ASSASSIN_NOT_IN_GAME, show_alert=True)
-        return
-
-    if not player["is_alive"]:
-        await callback.answer(Messages.ASSASSIN_ALREADY_DEAD, show_alert=True)
+    is_valid, player, error_msg = get_player_with_validation(game["id"], callback.from_user.id)
+    if not is_valid:
+        await callback.answer(error_msg, show_alert=True)
         return
 
     # Найти убийцу
