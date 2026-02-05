@@ -20,7 +20,6 @@ from app.states import (
     GeoState,
     AdminBroadcastState,
     AdminPollState,
-    AddTrackState,
 )
 from app.storage import (
     polls_storage,
@@ -32,7 +31,7 @@ from app.storage import (
 )
 from app.services.yandex_music import yandex_music_service, process_track_submission
 from app.services.photo_contest import handle_photo_submission, stop_photo_contest
-from app.constants import YANDEX_MUSIC_URL_PATTERN
+from app.constants import YANDEX_MUSIC_URL_PATTERN, MAX_PHOTO_CONTEST_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +132,11 @@ async def cmd_setaddress(message: Message) -> None:
     if not text:
         await message.answer(Messages.ADDRESS_FORMAT)
         return
+
+    if not location_storage.is_set():
+        await message.answer(f"{Emojis.ERROR} Сначала установите координаты через меню бота.")
+        return
+
     location_storage.set_address(text)
     await message.answer(f"{Emojis.SUCCESS} {Messages.ADDRESS_SET_SUCCESS.format(address=text)}")
 
@@ -229,31 +233,18 @@ async def handle_admin_photo(message: Message) -> None:
 
 # === Добавление трека админом ===
 
-@admin_router.callback_query(
-    F.data == AdminCallbacks.ADD_TRACK,
-    F.from_user.id == ADMIN_ID
+@admin_router.message(
+    F.chat.type == ChatType.PRIVATE,
+    F.from_user.id == ADMIN_ID,
+    F.text.regexp(YANDEX_MUSIC_URL_PATTERN)
 )
-async def admin_callback_add_track(callback: CallbackQuery, state: FSMContext) -> None:
+async def admin_handle_yandex_link(message: Message) -> None:
+    """Автоматическая обработка ссылок на Яндекс.Музыку от админа."""
     if not yandex_music_service.is_configured:
-        await callback.message.answer(f"{Emojis.ERROR} {Messages.PLAYLIST_NOT_CONFIGURED}")
-        await callback.answer()
+        await message.answer(f"{Emojis.ERROR} {Messages.PLAYLIST_NOT_CONFIGURED}")
         return
 
-    await state.set_state(AddTrackState.waiting_for_link)
-    await callback.message.answer(
-        f"{Emojis.MUSIC} {Messages.PLAYLIST_INFO_PRIVATE}",
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-
-@admin_router.message(
-    AddTrackState.waiting_for_link,
-    F.chat.type == ChatType.PRIVATE,
-    F.from_user.id == ADMIN_ID
-)
-async def admin_process_track_link(message: Message, state: FSMContext, bot: Bot) -> None:
-    await process_track_submission(message, state, is_admin=True)
+    await process_track_submission(message, is_admin=True)
 
 
 # === Достать ножи (перенаправление на игру) ===

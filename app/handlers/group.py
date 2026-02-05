@@ -23,8 +23,6 @@ from app.storage import (
 from app.constants import (
     BIRTHDAY_PHOTO_1,
     BIRTHDAY_PHOTO_2,
-    TRIP_MEETING_POINT_LATITUDE,
-    TRIP_MEETING_POINT_LONGITUDE,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,15 +74,9 @@ async def cmd_birthday(message: Message) -> None:
 @group_router.message(Command("trip"), F.chat.id == settings.bot.group_id)
 async def cmd_trip(message: Message) -> None:
     info = settings.content.trip_info.replace("\\n", "\n")
-    # Отправляем текст
     await message.answer(
         f"{Emojis.TRIP} {Messages.TRIP_TEMPLATE.format(info=info)}",
         parse_mode="Markdown"
-    )
-    # Отправляем геопозицию места сбора
-    await message.answer_location(
-        latitude=TRIP_MEETING_POINT_LATITUDE,
-        longitude=TRIP_MEETING_POINT_LONGITUDE
     )
 
 
@@ -192,15 +184,9 @@ async def callback_birthday(callback: CallbackQuery) -> None:
 @group_router.callback_query(F.data == MenuCallbacks.TRIP)
 async def callback_trip(callback: CallbackQuery) -> None:
     info = settings.content.trip_info.replace("\\n", "\n")
-    # Отправляем текст
     await callback.message.answer(
         f"{Emojis.TRIP} {Messages.TRIP_TEMPLATE.format(info=info)}",
         parse_mode="Markdown"
-    )
-    # Отправляем геопозицию места сбора
-    await callback.message.answer_location(
-        latitude=TRIP_MEETING_POINT_LATITUDE,
-        longitude=TRIP_MEETING_POINT_LONGITUDE
     )
     await callback.answer()
 

@@ -216,9 +216,9 @@ class TournamentStorage:
 
     def create_tournament(self, participants: list[str], matches: dict[str, Match]) -> Tournament:
         """Создает новый турнир с bracket."""
-        import math
+        # Находим максимальный номер раунда из всех матчей (самый надежный способ)
+        max_rounds = max((m.round_number for m in matches.values()), default=1)
 
-        max_rounds = math.ceil(math.log2(len(matches)))
         tournament = Tournament(
             tournament_id=f"tournament_{int(time.time())}",
             all_participants=participants,

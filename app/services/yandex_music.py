@@ -17,7 +17,7 @@ from app.config import settings
 from app.constants import (
     YANDEX_MUSIC_URL_PATTERN,
     YANDEX_API_RETRY_DELAY,
-    YANDEX_API_YANDEX_API_MAX_RETRIES,
+    YANDEX_API_MAX_RETRIES,
     YANDEX_API_TIMEOUT,
 )
 

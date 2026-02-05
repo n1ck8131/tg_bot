@@ -36,12 +36,6 @@ class AdminPollState(StatesGroup):
     waiting_for_poll_multiple = State()
 
 
-class AddTrackState(StatesGroup):
-    """Состояние добавления трека в плейлист."""
-
-    waiting_for_link = State()
-
-
 class TournamentState(StatesGroup):
     """Состояние турнирной системы бир-понга."""
 

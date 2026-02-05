@@ -99,12 +99,6 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text=f"{Emojis.PHOTO} {ButtonLabels.SEND_PHOTO_CONTEST}",
-                callback_data=AdminCallbacks.SEND_PHOTO
-            ),
-        ],
-        [
-            InlineKeyboardButton(
                 text=f"{Emojis.TOURNAMENT} {ButtonLabels.TOURNAMENT}",
                 callback_data=AdminCallbacks.TOURNAMENT
             ),
@@ -145,52 +139,8 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
                 callback_data=AdminCallbacks.BROADCAST
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text=f"{Emojis.MUSIC} {ButtonLabels.ADD_TRACK}",
-                callback_data=AdminCallbacks.ADD_TRACK
-            ),
-        ],
     ]
 
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def get_user_reply_keyboard(show_photo: bool = False) -> ReplyKeyboardMarkup:
-    """Постоянная клавиатура для пользователей."""
-    buttons = []
-    if show_photo:
-        buttons.append([KeyboardButton(text=f"{Emojis.PHOTO} {ButtonLabels.SEND_PHOTO}")])
-    buttons.append([KeyboardButton(text=f"{Emojis.MUSIC} {ButtonLabels.ADD_TRACK}")])
-    return ReplyKeyboardMarkup(
-        keyboard=buttons,
-        resize_keyboard=True,
-        persistent=True
-    )
-
-
-def get_user_menu_keyboard() -> InlineKeyboardMarkup:
-    """Меню пользователя в личке."""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text=f"🔪 {ButtonLabels.ASSASSIN_REGISTER}",
-                callback_data=AssassinCallbacks.REGISTER
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=f"{Emojis.PHOTO} {ButtonLabels.SEND_PHOTO_CONTEST}",
-                callback_data=UserCallbacks.SEND_PHOTO
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=f"{Emojis.MUSIC} {ButtonLabels.ADD_TRACK}",
-                callback_data=UserCallbacks.ADD_TRACK
-            )
-        ]
-    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -326,13 +276,8 @@ def get_assassin_admin_menu(show_register: bool = False, admin_registered: bool 
             ),
         ])
 
-    if admin_registered:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"✅ Ты зарегистрирован",
-                callback_data=AssassinCallbacks.SHOW_CONTRACT
-            ),
-        ])
+    # Кнопка "Ты зарегистрирован" убрана - она бесполезна во время регистрации
+    # Контракт будет доступен только после старта игры через личные сообщения
 
     buttons.extend([
         [
@@ -371,12 +316,6 @@ def get_assassin_admin_menu(show_register: bool = False, admin_registered: bool 
                 callback_data=AssassinCallbacks.TEST_MODE
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text="🔄 Обновить статус",
-                callback_data=AssassinCallbacks.REFRESH_MENU
-            ),
-        ],
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -397,12 +336,6 @@ def get_assassin_registration_keyboard() -> InlineKeyboardMarkup:
 def get_assassin_player_menu() -> InlineKeyboardMarkup:
     """Меню игрока во время игры."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=f"🎯 {ButtonLabels.ASSASSIN_SHOW_CONTRACT}",
-                callback_data=AssassinCallbacks.SHOW_CONTRACT
-            ),
-        ],
         [
             InlineKeyboardButton(
                 text=f"☠️ {ButtonLabels.ASSASSIN_I_AM_DEAD}",
