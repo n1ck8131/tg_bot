@@ -6,3 +6,15 @@ __pycache__/
 venv/
 assassin_game.db
 .claude/
+
+# Дополнительные игнорируемые файлы
+nul
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+.pytest_cache/
+.coverage
+htmlcov/
