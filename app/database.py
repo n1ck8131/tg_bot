@@ -121,7 +121,6 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_contract_game ON contract(game_id);
             """
         )
-    logger.info(f"База данных инициализирована: {DB_PATH}")
 
 
 # === Game ===

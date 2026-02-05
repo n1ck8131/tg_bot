@@ -20,7 +20,6 @@ from app.keyboards import (
 from app.states import TournamentState
 from app.storage import tournament_storage
 from app.tournament_utils import (
-    determine_team_size,
     create_teams,
     generate_single_elimination_bracket,
     format_bracket_for_display,
@@ -94,14 +93,26 @@ async def process_tournament_participants(
         )
         return
 
-    # Определить размер команды
-    team_size = determine_team_size(len(participants))
-
     # Создать команды
-    teams = create_teams(participants, team_size)
+    try:
+        teams = create_teams(participants)
+    except ValueError as e:
+        await message.answer(
+            f"{Emojis.ERROR} {str(e)}\n\n"
+            f"Невозможно создать турнир с {len(participants)} участниками.\n"
+            f"Попробуйте другое количество."
+        )
+        return
 
     # Сгенерировать bracket
-    matches = generate_single_elimination_bracket(teams)
+    try:
+        matches = generate_single_elimination_bracket(teams)
+    except ValueError as e:
+        await message.answer(
+            f"{Emojis.ERROR} {str(e)}\n\n"
+            f"Внутренняя ошибка при создании турнирной сетки."
+        )
+        return
 
     # Создать турнир в storage
     tournament = tournament_storage.create_tournament(
@@ -143,12 +154,20 @@ async def view_tournament_bracket(callback: CallbackQuery) -> None:
 
     bracket_text = format_bracket_for_display(tournament)
 
-    await callback.message.edit_text(
-        bracket_text,
-        parse_mode="Markdown",
-        reply_markup=get_tournament_control_keyboard(tournament),
-    )
-    await callback.answer()
+    try:
+        await callback.message.edit_text(
+            bracket_text,
+            parse_mode="Markdown",
+            reply_markup=get_tournament_control_keyboard(tournament),
+        )
+        await callback.answer("Сетка обновлена")
+    except Exception as e:
+        # Если сообщение не изменилось, просто уведомляем пользователя
+        if "message is not modified" in str(e):
+            await callback.answer("Сетка уже актуальна", show_alert=False)
+        else:
+            logger.error(f"Ошибка при обновлении сетки: {e}")
+            await callback.answer("Ошибка при обновлении", show_alert=True)
 
 
 # === Выбор матча для ввода результата ===
@@ -217,8 +236,11 @@ async def set_match_winner(callback: CallbackQuery, bot: Bot) -> None:
     tournament = tournament_storage.get_current()
 
     if not tournament or match_id not in tournament.matches:
+        logger.error(f"Турнир не найден или матч {match_id} не существует")
         await callback.answer(Messages.TOURNAMENT_MATCH_NOT_FOUND, show_alert=True)
         return
+
+    match = tournament.matches[match_id]
 
     # Установить победителя
     tournament_storage.set_match_winner(match_id, winner_team)
@@ -239,13 +261,39 @@ async def set_match_winner(callback: CallbackQuery, bot: Bot) -> None:
         except Exception as e:
             logger.error(f"Не удалось обновить сетку в группе: {e}")
 
-    # Уведомить админа
-    await callback.message.edit_text(
-        Messages.TOURNAMENT_MATCH_UPDATED.format(match_id=match_id),
-        parse_mode="Markdown",
-        reply_markup=get_tournament_control_keyboard(tournament),
-    )
-    await callback.answer(Messages.TOURNAMENT_RESULT_RECORDED)
+    # Проверяем, был ли это финальный матч
+    match = tournament.matches[match_id]
+    is_final = match.round_number == tournament.max_rounds
+
+    if is_final:
+        # Автоматически завершаем турнир и объявляем победителя
+        tournament_storage.finish_tournament()
+
+        await bot.send_message(
+            GROUP_ID,
+            Messages.TOURNAMENT_FINISHED.format(
+                winner_team=tournament.winner_team,
+                winner_members=", ".join(tournament.winner_members or []),
+            ),
+            parse_mode="Markdown",
+        )
+
+        tournament_storage.clear()
+
+        await callback.message.edit_text(
+            f"🏆 Турнир завершен!\n\n"
+            f"Победитель: {tournament.winner_team}\n"
+            f"Участники: {', '.join(tournament.winner_members or [])}"
+        )
+        await callback.answer("🎉 Победитель объявлен!")
+    else:
+        # Уведомить админа
+        await callback.message.edit_text(
+            Messages.TOURNAMENT_MATCH_UPDATED.format(match_id=match_id),
+            parse_mode="Markdown",
+            reply_markup=get_tournament_control_keyboard(tournament),
+        )
+        await callback.answer(Messages.TOURNAMENT_RESULT_RECORDED)
 
 
 # === Переход к следующему раунду ===

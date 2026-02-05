@@ -52,8 +52,6 @@ async def setup_bot_commands(bot: Bot) -> None:
         scope=BotCommandScopeChat(chat_id=settings.bot.admin_id)
     )
 
-    logger.info("Меню команд установлено")
-
 
 async def handle_errors(event: ErrorEvent) -> None:
     """Глобальный обработчик ошибок."""
@@ -85,8 +83,7 @@ async def main() -> None:
     await setup_bot_commands(bot)
 
     logger.info("Бот запущен")
-    logger.info(f"Admin ID: {settings.bot.admin_id}")
-    logger.info(f"Group ID: {settings.bot.group_id}")
+    logger.info("Admin and group IDs loaded successfully")
 
     # Используем async with для graceful shutdown
     try:
