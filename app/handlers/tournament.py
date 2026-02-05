@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot, Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums import ChatType
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
@@ -161,13 +162,16 @@ async def view_tournament_bracket(callback: CallbackQuery) -> None:
             reply_markup=get_tournament_control_keyboard(tournament),
         )
         await callback.answer("Сетка обновлена")
-    except Exception as e:
+    except TelegramBadRequest as e:
         # Если сообщение не изменилось, просто уведомляем пользователя
         if "message is not modified" in str(e):
             await callback.answer("Сетка уже актуальна", show_alert=False)
         else:
-            logger.error(f"Ошибка при обновлении сетки: {e}")
+            logger.error(f"Telegram API error при обновлении сетки: {e}")
             await callback.answer("Ошибка при обновлении", show_alert=True)
+    except Exception as e:
+        logger.exception(f"Unexpected error при обновлении сетки: {e}")
+        await callback.answer("Ошибка при обновлении", show_alert=True)
 
 
 # === Выбор матча для ввода результата ===
@@ -258,8 +262,10 @@ async def set_match_winner(callback: CallbackQuery, bot: Bot) -> None:
                 message_id=tournament.bracket_message_id,
                 parse_mode="Markdown",
             )
+        except TelegramBadRequest as e:
+            logger.error(f"Telegram API error при обновлении сетки: {e}")
         except Exception as e:
-            logger.error(f"Не удалось обновить сетку в группе: {e}")
+            logger.exception(f"Unexpected error при обновлении сетки: {e}")
 
     # Проверяем, был ли это финальный матч
     match = tournament.matches[match_id]
@@ -327,8 +333,10 @@ async def advance_to_next_round(callback: CallbackQuery, bot: Bot) -> None:
                 message_id=tournament.bracket_message_id,
                 parse_mode="Markdown",
             )
+        except TelegramBadRequest as e:
+            logger.error(f"Telegram API error при обновлении сетки: {e}")
         except Exception as e:
-            logger.error(f"Не удалось обновить сетку в группе: {e}")
+            logger.exception(f"Unexpected error при обновлении сетки: {e}")
 
     # Объявление в группу
     await bot.send_message(

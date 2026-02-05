@@ -36,8 +36,13 @@ def get_db():
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except sqlite3.DatabaseError as e:
         conn.rollback()
+        logger.error(f"Database error: {e}")
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.exception(f"Unexpected error: {e}")
         raise
     finally:
         conn.close()

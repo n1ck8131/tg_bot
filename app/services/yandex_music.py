@@ -11,6 +11,8 @@ from typing import Optional, TYPE_CHECKING
 from yandex_music import ClientAsync
 from yandex_music.exceptions import NetworkError
 
+from aiogram.exceptions import TelegramAPIError
+
 from app.config import settings
 from app.constants import YANDEX_MUSIC_URL_PATTERN
 
@@ -20,8 +22,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Паттерн для извлечения track_id из URL (с группой захвата для последней цифровой группы)
-YANDEX_MUSIC_PATTERN = re.compile(r'music\.yandex\.(?:ru|com)/album/\d+/track/(\d+)')
+# Паттерн для извлечения track_id из URL (с группой захвата для track_id)
+# Поддерживает ссылки с протоколом (https://) и без, а также с параметрами запроса (?utm_source=...)
+YANDEX_MUSIC_PATTERN = re.compile(r'(?:https?://)?music\.yandex\.(?:ru|com)/album/\d+/track/(\d+)')
 
 # Настройки retry
 MAX_RETRIES = 3
@@ -65,8 +68,12 @@ class YandexMusicService:
                 self._client = await client.init()
                 logger.info("Яндекс Музыка клиент инициализирован")
                 return self._client
+            except NetworkError as e:
+                logger.warning(f"Network error при инициализации YM (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(2)
             except Exception as e:
-                logger.warning(f"Попытка {attempt + 1}/{MAX_RETRIES} инициализации YM: {e}")
+                logger.exception(f"Unexpected error при инициализации YM (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(2)
 
@@ -100,8 +107,11 @@ class YandexMusicService:
                 artists=artists,
                 album_id=album_id,
             )
+        except NetworkError as e:
+            logger.error(f"Network error при получении трека: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Ошибка получения трека: {e}")
+            logger.exception(f"Unexpected error при получении трека: {e}")
             return None
 
     async def add_track_to_playlist(self, track_id: str) -> tuple[bool, str, Optional[TrackInfo]]:
@@ -174,7 +184,6 @@ yandex_music_service = YandexMusicService()
 
 async def process_track_submission(
     message: "Message",
-    state: "FSMContext",
     is_admin: bool = False
 ) -> None:
     """Обрабатывает отправку ссылки на трек."""
@@ -213,9 +222,9 @@ async def process_track_submission(
         error_msg = error_messages.get(error, "Не удалось добавить трек. Попробуйте позже.")
         await message.answer(f"{Emojis.ERROR} {error_msg}")
 
-    await state.clear()
-
     try:
         await processing_msg.delete()
+    except TelegramAPIError as e:
+        logger.debug(f"Telegram API error при удалении сообщения: {e}")
     except Exception as e:
-        logger.debug(f"Failed to delete processing message: {e}")
+        logger.debug(f"Unexpected error при удалении сообщения: {e}")
