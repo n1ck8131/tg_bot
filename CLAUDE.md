@@ -34,13 +34,15 @@ python run.py
 
 ### Router System
 
-The bot uses aiogram's router system with three separate routers registered in specific order (see `app/handlers/__init__.py`):
+The bot uses aiogram's router system with 5 separate routers registered in specific order (see `app/handlers/__init__.py`):
 
 1. `admin_router` — Admin commands in private chat (checked first)
 2. `user_router` — Regular user commands in private chat
-3. `group_router` — Group chat commands
+3. `assassin_router` — Game "Достать ножи" handlers (from spy_game.py)
+4. `tournament_router` — Beer pong tournament handlers
+5. `group_router` — Group chat commands (checked last)
 
-Router order matters: admin router must be registered before user router to correctly filter admin vs regular users.
+Router order matters: admin router must be registered before user router to correctly filter admin vs regular users. Game-specific routers are in the middle to handle their callbacks before general group commands.
 
 ### Key Patterns
 
@@ -51,6 +53,26 @@ Router order matters: admin router must be registered before user router to corr
 **FSM states:** Multi-step interactions use aiogram FSM. States are defined in `app/states.py`. Each state group handles one user flow (asking questions, creating polls, adding tracks, etc.).
 
 **In-memory storage:** `app/storage.py` contains singleton storage classes for polls, photo contest entries, forwarded messages, and location. Data is lost on restart.
+
+**Keyboards:** All inline keyboards are generated in `app/keyboards.py` using builder pattern. Returns `InlineKeyboardMarkup` objects for consistent UI across handlers.
+
+**Utilities:**
+
+- `app/utils/game_helpers.py` — Helper functions for game mechanics
+- `app/tournament_utils.py` — Tournament bracket generation and team randomization
+
+**Filters:** Custom filters in `app/filters.py`:
+
+- `IsAdminPrivateFilter` — Private messages from admin only
+- `IsUserPrivateFilter` — Private messages from non-admin users
+- `IsGroupChatFilter` — Messages from the configured group chat
+
+**Middleware:** `RateLimitMiddleware` in `app/middleware.py` prevents spam:
+
+- Messages: 10 per 30 seconds per user
+- Callbacks: 20 per 30 seconds per user
+
+**Error handling:** Global error handler in `app/bot.py` logs all exceptions with update context.
 
 ### Configuration
 
@@ -71,15 +93,22 @@ All bot messages and button labels are centralized in `app/messages.py`:
 - `ButtonLabels` class — keyboard button text
 - `Emojis` class — emoji constants
 
-### External Services
+### Service Layer
 
-`app/services/yandex_music.py` — Async Yandex Music API client with retry logic and rate limit handling. Extracts track IDs from URLs and adds tracks to configured playlist.
+Business logic is separated into `app/services/`:
+
+- `knives_game.py` — Game logic (kill chronology formatting, winner path calculation)
+- `photo_contest.py` — Photo contest logic (participant management, voting)
+- `yandex_music.py` — Async Yandex Music API client with retry logic and rate limit handling. Extracts track IDs from URLs and adds tracks to configured playlist.
 
 ### Game "Достать ножи" (Get Knives Out)
 
 `app/database.py` — SQLite database for persistent game storage (survives restarts):
+
 - Tables: game, player, contract, kill_log, weapon, location
 - All database operations use context managers with transactions
+- Database automatically initialized on bot startup via `init_database()`
+- Database file: `assassin_game.db` (created automatically in project root)
 
 `app/handlers/spy_game.py` — Main game logic (600+ lines):
 - Registration flow for real and virtual players
@@ -90,8 +119,40 @@ All bot messages and button labels are centralized in `app/messages.py`:
 - Test mode with virtual players for debugging
 
 **Key mechanics:**
+
 - Safe zone: "курилка" (smoking area) - no kills allowed there
 - Each player gets: target (another player) + weapon + location
 - When target confirms death, killer gets target's target with new weapon/location
 - Game ends when 1 player remains alive
 - All announcements in test mode go to admin with 🧪 TEST prefix
+
+## Development
+
+### Entry Points
+
+- `run.py` — Main entry point (use `python run.py` to start the bot)
+- `app/bot.py` — Bot initialization and main() function with:
+  - Automatic database initialization via `init_database()`
+  - Dispatcher setup with middleware
+  - Global error handler registration
+  - Graceful shutdown with connection cleanup
+
+### Project Structure
+
+- `app/handlers/` — Message and callback handlers (admin, user, group, spy_game, tournament)
+- `app/services/` — Business logic layer (game, photo contest, Yandex Music)
+- `app/utils/` — Helper functions and utilities
+- `app/bot.py` — Bot initialization and configuration
+- `run.py` — Entry point
+
+### Key Files
+
+- `app/config.py` — Loads and validates environment variables
+- `app/keyboards.py` — All inline keyboard layouts
+- `app/filters.py` — Custom message filters
+- `app/middleware.py` — Rate limiting middleware
+- `app/database.py` — SQLite ORM layer with context managers
+
+### Testing
+
+The bot includes test mode for "Достать ножи" game with virtual players. See `KNIVES_GAME_TESTING_GUIDE.md` for detailed testing instructions. No automated tests currently exist.
