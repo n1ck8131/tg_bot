@@ -24,6 +24,8 @@ class AdminCallbacks:
     SET_LOCATION = f"{PREFIX}:setlocation"
     PHOTO_START = f"{PREFIX}:photo_start"
     PHOTO_STOP = f"{PREFIX}:photo_stop"
+    PHOTO_START_VOTING = f"{PREFIX}:photo_start_voting"
+    PHOTO_END_VOTING = f"{PREFIX}:photo_end_voting"
     SEND_PHOTO = f"{PREFIX}:send_photo"
     ADD_TRACK = f"{PREFIX}:add_track"
     SPY = f"{PREFIX}:spy"
@@ -91,3 +93,11 @@ class AssassinCallbacks:
 class KnivesGameCallbacks(AssassinCallbacks):
     """Callback'и игры 'Достать ножи' (новое название)."""
     pass
+
+
+class PhotoVoteCallbacks:
+    """Callback'и для голосования за фото."""
+
+    PREFIX = "photo_vote"
+    # Формат: photo_vote:<user_id участника>
+    # Например: photo_vote:123456789

@@ -9,7 +9,7 @@ from aiogram.types import (
     KeyboardButton,
 )
 
-from app.callbacks import MenuCallbacks, AdminCallbacks, UserCallbacks, TournamentCallbacks, AssassinCallbacks
+from app.callbacks import MenuCallbacks, AdminCallbacks, UserCallbacks, TournamentCallbacks, AssassinCallbacks, PhotoVoteCallbacks
 from app.messages import ButtonLabels, Emojis
 from app.storage import photo_contest_storage, Match, Tournament
 from app.tournament_utils import get_pending_matches
@@ -93,8 +93,14 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text="🛑 {0}".format(ButtonLabels.PHOTO_STOP),
-                callback_data=AdminCallbacks.PHOTO_STOP
+                text=f"🗳 {ButtonLabels.PHOTO_START_VOTING}",
+                callback_data=AdminCallbacks.PHOTO_START_VOTING
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"🏁 {ButtonLabels.PHOTO_END_VOTING}",
+                callback_data=AdminCallbacks.PHOTO_END_VOTING
             ),
         ],
         [
@@ -454,3 +460,27 @@ def get_assassin_test_death_confirm_keyboard(player_id: int) -> InlineKeyboardMa
             ),
         ],
     ])
+
+
+# === Photo Contest Keyboards ===
+
+
+def get_photo_voting_keyboard(entries: list[tuple[int, 'PhotoEntry']]) -> InlineKeyboardMarkup:
+    """Клавиатура для голосования за фото.
+
+    Args:
+        entries: Список кортежей (user_id, PhotoEntry)
+    """
+    from app.messages import Messages
+
+    buttons = []
+    for num, (user_id, entry) in enumerate(entries, 1):
+        button_text = Messages.PHOTO_BUTTON_VOTE.format(num=num, user=entry.user_name)
+        buttons.append([
+            InlineKeyboardButton(
+                text=button_text,
+                callback_data=f"{PhotoVoteCallbacks.PREFIX}:{user_id}"
+            )
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

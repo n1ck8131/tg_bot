@@ -30,7 +30,7 @@ from app.storage import (
     LocationData,
 )
 from app.services.yandex_music import yandex_music_service, process_track_submission
-from app.services.photo_contest import handle_photo_submission, stop_photo_contest
+from app.services.photo_contest import handle_photo_submission, stop_photo_submissions, start_voting, end_voting
 from app.constants import YANDEX_MUSIC_URL_PATTERN, MAX_PHOTO_CONTEST_PARTICIPANTS
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,10 @@ GROUP_ID = settings.bot.group_id
 
 # Блокировка для предотвращения race condition при работе с photo contest
 photo_contest_lock = asyncio.Lock()
+
+# Буфер для альбомов (media group) от админа
+_media_group_buffer: dict[str, list[Message]] = {}
+_media_group_tasks: dict[str, asyncio.Task] = {}
 
 
 # === Команда start ===
@@ -149,11 +153,27 @@ async def cmd_setaddress(message: Message) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_reply_photo(message: Message, bot: Bot) -> None:
+    """
+    Управление фото-конкурсом через reply-кнопку.
+    Переключает между состояниями:
+    1. Не активен -> Начать приём фото
+    2. Приём активен -> Завершить приём фото
+    3. Приём завершён -> Начать голосование
+    4. Голосование идёт -> Завершить голосование
+    """
     async with photo_contest_lock:
-        if not photo_contest_storage.is_active:
-            await _start_photo_contest(message, bot)
+        if photo_contest_storage.is_voting_active:
+            # Голосование идёт -> завершить
+            await end_voting(message, bot, GROUP_ID)
+        elif photo_contest_storage.is_active:
+            # Приём фото идёт -> завершить приём
+            await stop_photo_submissions(message, bot, GROUP_ID)
+        elif not photo_contest_storage.is_empty():
+            # Есть фото, но приём завершён -> начать голосование
+            await start_voting(message, bot, GROUP_ID)
         else:
-            await _stop_photo_contest(message, bot)
+            # Конкурс не активен -> начать приём фото
+            await _start_photo_contest(message, bot)
 
 
 @admin_router.callback_query(
@@ -175,16 +195,51 @@ async def admin_callback_photo_start(callback: CallbackQuery, bot: Bot) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_callback_photo_stop(callback: CallbackQuery, bot: Bot) -> None:
+    """Завершить приём фото."""
     async with photo_contest_lock:
         if not photo_contest_storage.is_active:
             await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_NOT_ACTIVE}")
             await callback.answer()
             return
-        await _stop_photo_contest(callback.message, bot)
+        await stop_photo_submissions(callback.message, bot, GROUP_ID)
+        await callback.answer()
+
+
+@admin_router.callback_query(
+    F.data == AdminCallbacks.PHOTO_START_VOTING,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_callback_photo_start_voting(callback: CallbackQuery, bot: Bot) -> None:
+    """Начать голосование (автоматически закрывает приём фото)."""
+    async with photo_contest_lock:
+        if photo_contest_storage.is_voting_active:
+            await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_VOTING_ALREADY_ACTIVE}")
+            await callback.answer()
+            return
+        # Автоматически закрываем приём фото, если он активен
+        if photo_contest_storage.is_active:
+            photo_contest_storage.stop()
+        await start_voting(callback.message, bot, GROUP_ID)
+        await callback.answer()
+
+
+@admin_router.callback_query(
+    F.data == AdminCallbacks.PHOTO_END_VOTING,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_callback_photo_end_voting(callback: CallbackQuery, bot: Bot) -> None:
+    """Завершить голосование."""
+    async with photo_contest_lock:
+        if not photo_contest_storage.is_voting_active:
+            await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_VOTING_NOT_ACTIVE}")
+            await callback.answer()
+            return
+        await end_voting(callback.message, bot, GROUP_ID)
         await callback.answer()
 
 
 async def _start_photo_contest(message: Message, bot: Bot, from_callback: bool = False) -> None:
+    """Начать приём фото."""
     photo_contest_storage.start()
     await bot.send_message(
         GROUP_ID,
@@ -195,10 +250,6 @@ async def _start_photo_contest(message: Message, bot: Bot, from_callback: bool =
     await message.answer(f"{Emojis.SUCCESS} {msg}")
 
 
-async def _stop_photo_contest(message: Message, bot: Bot) -> None:
-    await stop_photo_contest(message, bot, GROUP_ID)
-
-
 # === Отправка фото на конкурс админом ===
 
 @admin_router.callback_query(
@@ -206,17 +257,17 @@ async def _stop_photo_contest(message: Message, bot: Bot) -> None:
     F.from_user.id == ADMIN_ID
 )
 async def admin_callback_send_photo(callback: CallbackQuery) -> None:
+    """Приглашение отправить фото. Админ может отправлять несколько фото для тестирования."""
     if not photo_contest_storage.is_active:
         await callback.answer(f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_NOT_STARTED_ADMIN}", show_alert=True)
         return
 
-    user_id = callback.from_user.id
-    if photo_contest_storage.has_entry(user_id):
-        await callback.message.answer(f"{Emojis.WARNING} {Messages.PHOTO_ALREADY_SENT}")
-    elif photo_contest_storage.entries_count() >= MAX_PHOTO_CONTEST_PARTICIPANTS:
-        await callback.message.answer(f"{Emojis.ERROR} {Messages.PHOTO_CONTEST_MAX_REACHED}")
-    else:
-        await callback.message.answer(f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}")
+    # Админ может отправлять неограниченное количество фото для тестирования
+    count = photo_contest_storage.entries_count()
+    await callback.message.answer(
+        f"{Emojis.PHOTO} {Messages.PHOTO_SEND_PROMPT}\n\n"
+        f"Сейчас в конкурсе: {count} фото"
+    )
     await callback.answer()
 
 
@@ -228,7 +279,45 @@ async def admin_callback_send_photo(callback: CallbackQuery) -> None:
     F.photo
 )
 async def handle_admin_photo(message: Message) -> None:
-    await handle_photo_submission(message)
+    """Обработка фото от админа. Поддерживает альбомы (media group)."""
+    if message.media_group_id:
+        mg_id = message.media_group_id
+        if mg_id not in _media_group_buffer:
+            _media_group_buffer[mg_id] = []
+        _media_group_buffer[mg_id].append(message)
+
+        # Отменить предыдущий таск, если есть (ждём пока все фото альбома придут)
+        if mg_id in _media_group_tasks:
+            _media_group_tasks[mg_id].cancel()
+
+        _media_group_tasks[mg_id] = asyncio.create_task(
+            _process_admin_media_group(mg_id)
+        )
+    else:
+        await handle_photo_submission(message, is_admin=True)
+
+
+async def _process_admin_media_group(mg_id: str) -> None:
+    """Обрабатывает альбом фото от админа после небольшой задержки."""
+    await asyncio.sleep(0.5)
+
+    messages = _media_group_buffer.pop(mg_id, [])
+    _media_group_tasks.pop(mg_id, None)
+
+    if not messages:
+        return
+
+    count = 0
+    for msg in messages:
+        result = await handle_photo_submission(msg, is_admin=True, silent=True)
+        if result:
+            count += 1
+
+    if count > 0:
+        await messages[0].answer(
+            f"{Emojis.SUCCESS} {Messages.PHOTO_ALBUM_ACCEPTED.format(count=count)}"
+            f" (всего: {photo_contest_storage.entries_count()})"
+        )
 
 
 # === Добавление трека админом ===

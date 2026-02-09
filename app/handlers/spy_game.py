@@ -879,21 +879,8 @@ async def player_register(callback: CallbackQuery) -> None:
         is_virtual=False,
     )
 
-    # Если админ регистрируется, показать админское меню с обновленным статусом
-    if callback.from_user.id == ADMIN_ID:
-        await callback.message.edit_text(
-            f"{Emojis.SUCCESS} {Messages.ASSASSIN_REGISTERED.format(mention=mention_html)}\n\n"
-            "Теперь ты участвуешь в игре как игрок! Когда игра начнется, ты получишь свое задание.",
-            parse_mode="HTML",
-            reply_markup=get_assassin_admin_menu(show_register=True, admin_registered=True),
-        )
-        await callback.answer()
-    else:
-        await callback.message.edit_text(
-            Messages.ASSASSIN_REGISTERED.format(mention=mention_html),
-            parse_mode="HTML",
-        )
-        await callback.answer(Messages.ASSASSIN_REGISTERED_ALERT, show_alert=True)
+    # Показать всплывающее окно об успешной регистрации
+    await callback.answer(Messages.ASSASSIN_REGISTERED_ALERT, show_alert=True)
 
 
 @assassin_router.callback_query(

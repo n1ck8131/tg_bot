@@ -30,6 +30,7 @@ class PhotoEntry:
 
     photo_id: str
     user_name: str
+    user_id: int = 0
     created_at: float = field(default_factory=time.time)
 
 
@@ -100,20 +101,54 @@ class PhotoContestStorage:
     def __init__(self) -> None:
         self._active: bool = False
         self._entries: dict[int, PhotoEntry] = {}
+        self._voting_active: bool = False
+        self._votes: dict[int, int] = {}  # {voter_user_id: photo_owner_user_id}
+        self._admin_photo_counter: int = 0  # Счетчик для генерации уникальных ID админских фото
 
     @property
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def is_voting_active(self) -> bool:
+        return self._voting_active
+
     def start(self) -> None:
         self._active = True
         self._entries.clear()
+        self._voting_active = False
+        self._votes.clear()
+        self._admin_photo_counter = 0
 
     def stop(self) -> None:
         self._active = False
 
-    def add_entry(self, user_id: int, entry: PhotoEntry) -> None:
-        self._entries[user_id] = entry
+    def start_voting(self) -> None:
+        """Начать голосование (приём фото завершён)."""
+        self._active = False
+        self._voting_active = True
+        self._votes.clear()
+
+    def stop_voting(self) -> None:
+        """Остановить голосование."""
+        self._voting_active = False
+
+    def add_entry(self, user_id: int, entry: PhotoEntry, is_admin: bool = False) -> None:
+        """Добавить фото в конкурс.
+
+        Args:
+            user_id: ID пользователя
+            entry: Данные фото
+            is_admin: Если True, генерируется уникальный ID для каждого фото админа
+        """
+        if is_admin:
+            # Для админа генерируем уникальные ID, чтобы можно было добавить несколько фото
+            # Используем большие отрицательные числа, чтобы не конфликтовать с реальными user_id
+            unique_id = -1000000 - self._admin_photo_counter
+            self._admin_photo_counter += 1
+            self._entries[unique_id] = entry
+        else:
+            self._entries[user_id] = entry
 
     def has_entry(self, user_id: int) -> bool:
         return user_id in self._entries
@@ -126,6 +161,29 @@ class PhotoContestStorage:
 
     def is_empty(self) -> bool:
         return len(self._entries) == 0
+
+    def add_vote(self, voter_user_id: int, photo_owner_user_id: int) -> None:
+        """Добавить голос."""
+        self._votes[voter_user_id] = photo_owner_user_id
+
+    def has_voted(self, user_id: int) -> bool:
+        """Проверить, голосовал ли пользователь."""
+        return user_id in self._votes
+
+    def get_vote_counts(self) -> dict[int, int]:
+        """Получить количество голосов для каждого фото. {photo_owner_user_id: count}"""
+        counts: dict[int, int] = {}
+        for photo_owner_id in self._votes.values():
+            counts[photo_owner_id] = counts.get(photo_owner_id, 0) + 1
+        return counts
+
+    def clear(self) -> None:
+        """Полностью очистить хранилище."""
+        self._active = False
+        self._entries.clear()
+        self._voting_active = False
+        self._votes.clear()
+        self._admin_photo_counter = 0
 
 
 class ForwardedMessagesStorage:
