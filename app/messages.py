@@ -219,8 +219,7 @@ class Messages:
         "Безопасных мест нет. Есть только курилка.\n\n"
         "Игра начнётся, когда организатор даст сигнал. Готовься!"
     )
-    ASSASSIN_REGISTERED = "✅ Ты в игре как: {mention}. Жди старта!"
-    ASSASSIN_REGISTERED_ALERT = "✅ Регистрация успешна! Ожидай начала игры."
+    ASSASSIN_REGISTERED_ALERT = "✅ Ты зарегистрирован!"
     ASSASSIN_ALREADY_REGISTERED = "⚠️ Ты уже зарегистрирован!"
     ASSASSIN_NO_ACTIVE_GAME = "❌ Нет активной игры. Дождись объявления от организатора."
     ASSASSIN_REG_CLOSED = "❌ Регистрация закрыта. Игра уже началась."
