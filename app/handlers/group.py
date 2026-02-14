@@ -44,9 +44,10 @@ async def handle_group_photo(message: Message, bot: Bot) -> None:
     """Напоминает, что фото нужно отправлять в личный чат."""
     if photo_contest_storage.is_active:
         bot_username = (await bot.get_me()).username
+        safe_username = bot_username.replace("_", "\\_")
         await message.reply(
             f"{Emojis.WARNING} {Messages.PHOTO_CONTEST_SEND_TO_PRIVATE}\n\n"
-            f"Напиши @{bot_username} в личку и отправь фото там.",
+            f"Напиши @{safe_username} в личку и отправь фото там.",
             parse_mode="Markdown"
         )
     # Если конкурс не активен - игнорируем

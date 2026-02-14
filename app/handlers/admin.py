@@ -13,7 +13,7 @@ from aiogram.enums import ChatType
 from aiogram.fsm.context import FSMContext
 
 from app.config import settings
-from app.messages import Messages, Emojis, TEAM_NAMES
+from app.messages import Messages, ButtonLabels, Emojis, TEAM_NAMES
 from app.callbacks import AdminCallbacks
 from app.keyboards import get_admin_reply_keyboard, get_admin_menu_keyboard
 from app.states import (
@@ -74,6 +74,112 @@ async def admin_reply_menu(message: Message) -> None:
         f"{Emojis.WAVE} {Messages.ADMIN_MENU}",
         reply_markup=get_admin_reply_keyboard()
     )
+
+
+# === Инфо о регистрации ===
+
+@admin_router.message(
+    F.text == f"{Emojis.INFO} {ButtonLabels.REG_INFO}",
+    F.chat.type == ChatType.PRIVATE,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_reply_reg_info(message: Message) -> None:
+    """Показать сводку: кто зарегистрирован в игру и кто отправил фото."""
+    from app.database import get_active_game, get_all_players
+
+    text = Messages.REG_INFO_TITLE
+
+    # --- Секция "Достать ножи" ---
+    text += Messages.REG_INFO_GAME_SECTION
+    game = get_active_game()
+    if not game:
+        text += Messages.REG_INFO_GAME_NO_ACTIVE
+    elif game["status"] == "running":
+        text += Messages.REG_INFO_GAME_RUNNING
+    else:
+        players = get_all_players(game["id"])
+        text += Messages.REG_INFO_GAME_PLAYERS.format(count=len(players))
+        for player in players:
+            name = player["display_name"]
+            if player["is_virtual"]:
+                name += " (виртуальный)"
+            text += Messages.REG_INFO_GAME_PLAYER_ENTRY.format(name=name)
+        if not players:
+            text += "  Пока никого\n"
+
+    # --- Секция "Фото-конкурс" ---
+    text += Messages.REG_INFO_PHOTO_SECTION
+    async with photo_contest_lock:
+        if not photo_contest_storage.is_active and not photo_contest_storage.is_voting_active and photo_contest_storage.is_empty():
+            text += Messages.REG_INFO_PHOTO_NOT_ACTIVE
+        elif photo_contest_storage.is_voting_active:
+            text += Messages.REG_INFO_PHOTO_VOTING
+            entries = photo_contest_storage.get_entries()
+            text += Messages.REG_INFO_PHOTO_ENTRIES.format(count=len(entries))
+            for _user_id, entry in entries:
+                text += Messages.REG_INFO_PHOTO_ENTRY.format(name=entry.user_name)
+        else:
+            entries = photo_contest_storage.get_entries()
+            count = len(entries)
+            text += Messages.REG_INFO_PHOTO_ENTRIES.format(count=count)
+            for _user_id, entry in entries:
+                text += Messages.REG_INFO_PHOTO_ENTRY.format(name=entry.user_name)
+            if count == 0:
+                text += "  Пока никого\n"
+
+    await message.answer(text, parse_mode="Markdown")
+
+
+@admin_router.callback_query(
+    F.data == AdminCallbacks.REG_INFO,
+    F.from_user.id == ADMIN_ID
+)
+async def admin_callback_reg_info(callback: CallbackQuery) -> None:
+    """Показать сводку по регистрациям (inline-кнопка)."""
+    from app.database import get_active_game, get_all_players
+
+    text = Messages.REG_INFO_TITLE
+
+    # --- Секция "Достать ножи" ---
+    text += Messages.REG_INFO_GAME_SECTION
+    game = get_active_game()
+    if not game:
+        text += Messages.REG_INFO_GAME_NO_ACTIVE
+    elif game["status"] == "running":
+        text += Messages.REG_INFO_GAME_RUNNING
+    else:
+        players = get_all_players(game["id"])
+        text += Messages.REG_INFO_GAME_PLAYERS.format(count=len(players))
+        for player in players:
+            name = player["display_name"]
+            if player["is_virtual"]:
+                name += " (виртуальный)"
+            text += Messages.REG_INFO_GAME_PLAYER_ENTRY.format(name=name)
+        if not players:
+            text += "  Пока никого\n"
+
+    # --- Секция "Фото-конкурс" ---
+    text += Messages.REG_INFO_PHOTO_SECTION
+    async with photo_contest_lock:
+        if not photo_contest_storage.is_active and not photo_contest_storage.is_voting_active and photo_contest_storage.is_empty():
+            text += Messages.REG_INFO_PHOTO_NOT_ACTIVE
+        elif photo_contest_storage.is_voting_active:
+            text += Messages.REG_INFO_PHOTO_VOTING
+            entries = photo_contest_storage.get_entries()
+            text += Messages.REG_INFO_PHOTO_ENTRIES.format(count=len(entries))
+            for _user_id, entry in entries:
+                text += Messages.REG_INFO_PHOTO_ENTRY.format(name=entry.user_name)
+        else:
+            entries = photo_contest_storage.get_entries()
+            count = len(entries)
+            text += Messages.REG_INFO_PHOTO_ENTRIES.format(count=count)
+            for _user_id, entry in entries:
+                text += Messages.REG_INFO_PHOTO_ENTRY.format(name=entry.user_name)
+            if count == 0:
+                text += "  Пока никого\n"
+
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer()
 
 
 # === Геопозиция ===

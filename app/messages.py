@@ -412,7 +412,7 @@ class Messages:
 /ask — написать сообщение Севе
 /help — показать это сообщение
 
-*Через личку бота @bd_2026_bot:*
+*Через личку бота @bd\_2026\_bot:*
 • Добавить трек в плейлист
 • Отправить фото на конкурс
 
@@ -471,6 +471,19 @@ class Messages:
     # Фото-конкурс - для админа
     PHOTO_CONTEST_NOT_STARTED_ADMIN = "Конкурс фото не запущен! Сначала нажми 'Начать фото-конкурс'"
 
+    # === Инфо о регистрации ===
+    REG_INFO_TITLE = "📋 *Инфо о регистрации*\n\n"
+    REG_INFO_GAME_SECTION = "🔪 *Достать ножи*\n"
+    REG_INFO_GAME_NO_ACTIVE = "Нет активной игры\n"
+    REG_INFO_GAME_RUNNING = "Игра уже идёт (регистрация закрыта)\n"
+    REG_INFO_GAME_PLAYERS = "Зарегистрировано: {count}\n"
+    REG_INFO_GAME_PLAYER_ENTRY = "  • {name}\n"
+    REG_INFO_PHOTO_SECTION = "\n📸 *Фото-конкурс*\n"
+    REG_INFO_PHOTO_NOT_ACTIVE = "Фото-конкурс не активен\n"
+    REG_INFO_PHOTO_VOTING = "Идёт голосование\n"
+    REG_INFO_PHOTO_ENTRIES = "Отправлено фото: {count}\n"
+    REG_INFO_PHOTO_ENTRY = "  • {name}\n"
+
 
 class ButtonLabels:
     """Надписи на кнопках."""
@@ -504,6 +517,7 @@ class ButtonLabels:
     MESSAGE = "Сообщение"
     KNIVES_OUT = "Достать ножи"
     LOCATION = "Геопозиция"
+    REG_INFO = "Инфо о регистрации"
 
     # === User menu ===
     SEND_PHOTO_CONTEST = "Отправить фото"

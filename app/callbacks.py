@@ -34,6 +34,7 @@ class AdminCallbacks:
     POLL_RESULTS = f"{PREFIX}:poll_results"
     BROADCAST = f"{PREFIX}:broadcast"
     TOURNAMENT = f"{PREFIX}:tournament"
+    REG_INFO = f"{PREFIX}:reg_info"
 
 
 class UserCallbacks:

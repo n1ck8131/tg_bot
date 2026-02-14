@@ -74,6 +74,9 @@ def get_admin_reply_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text=f"{Emojis.BROADCAST} {ButtonLabels.MESSAGE}"),
             ],
             [
+                KeyboardButton(text=f"{Emojis.INFO} {ButtonLabels.REG_INFO}"),
+            ],
+            [
                 KeyboardButton(text=f"{Emojis.MENU} {ButtonLabels.MAIN_MENU}"),
             ],
         ],
@@ -143,6 +146,12 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=f"{Emojis.BROADCAST} {ButtonLabels.BROADCAST}",
                 callback_data=AdminCallbacks.BROADCAST
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{Emojis.INFO} {ButtonLabels.REG_INFO}",
+                callback_data=AdminCallbacks.REG_INFO
             ),
         ],
     ]
