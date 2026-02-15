@@ -201,8 +201,10 @@ async def admin_reply_location(message: Message, state: FSMContext) -> None:
             parse_mode="Markdown"
         )
     await state.set_state(GeoState.waiting_for_location)
-    if not location:
-        await message.answer(f"{Emojis.LOCATION} {Messages.LOCATION_REQUEST}")
+    await message.answer(
+        f"{Emojis.LOCATION} {Messages.LOCATION_REQUEST}",
+        parse_mode="Markdown"
+    )
 
 
 @admin_router.callback_query(
@@ -211,7 +213,10 @@ async def admin_reply_location(message: Message, state: FSMContext) -> None:
 )
 async def admin_callback_setlocation(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(GeoState.waiting_for_location)
-    await callback.message.answer(f"{Emojis.LOCATION} {Messages.LOCATION_REQUEST}")
+    await callback.message.answer(
+        f"{Emojis.LOCATION} {Messages.LOCATION_REQUEST}",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 
@@ -228,7 +233,8 @@ async def process_location(message: Message, state: FSMContext) -> None:
         longitude=message.location.longitude,
     ))
     await message.answer(
-        f"{Emojis.SUCCESS} {Messages.LOCATION_SET_SUCCESS.format(latitude=message.location.latitude, longitude=message.location.longitude)}"
+        f"{Emojis.SUCCESS} {Messages.LOCATION_SET_SUCCESS.format(latitude=message.location.latitude, longitude=message.location.longitude)}",
+        reply_markup=get_admin_reply_keyboard()
     )
 
 
